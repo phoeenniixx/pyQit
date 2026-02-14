@@ -48,7 +48,6 @@ class Trainer:
                 y_batch = y_shuffled[start_idx:end_idx]
                 
                 def batch_cost_fn(*weight_tensors):
-                    """Cost function with weights as positional args"""
                     preds = model.forward_from_tensors(X_batch, *weight_tensors)
                     return loss_fn(preds, y_batch)
                 
@@ -70,7 +69,7 @@ class Trainer:
 
             avg_loss = epoch_loss / num_batches
             print(f"Epoch {epoch+1:03d}/{self.max_epochs} | Avg Loss: {avg_loss:.6f}")
-            
+
         final_weight_dict = {k: w for k, w in zip(weight_keys, current_weights)}
         model.update_weights(final_weight_dict)
         print("Training Complete.")

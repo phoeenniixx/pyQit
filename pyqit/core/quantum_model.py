@@ -24,7 +24,6 @@ class QuantumModel:
         self.weight_keys = list(self.shapes.keys())
         self.weights = self._init_weights(self.shapes)
         
-        # Create QNode with proper interface
         self.qnode = qml.QNode(self._circuit, self.device, interface='autograd')
 
     def _init_weights(self, shapes):
@@ -35,14 +34,12 @@ class QuantumModel:
         return weights
 
     def _circuit(self, inputs, *flat_weights):
-        """The quantum circuit - expects flattened weight tensors"""
         weights_dict = dict(zip(self.weight_keys, flat_weights))
         self.embedding.forward(inputs)
         self.ansatz.build_circuit(weights_dict)
         return self.measure_fn(self.measure_wires)
 
     def __call__(self, inputs, weights=None):
-        """Forward pass - can take dict or None"""
         if weights is None:
             weights = self.weights
         
@@ -51,8 +48,6 @@ class QuantumModel:
         return self.qnode(inputs, *flat_weight_values)
     
     def forward_from_tensors(self, inputs, *weight_tensors):
-        """Forward pass taking weight tensors directly as positional args.
-        This is used during gradient computation to avoid dict construction."""
         return self.qnode(inputs, *weight_tensors)
 
     def update_weights(self, new_weights):
