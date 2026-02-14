@@ -6,16 +6,6 @@ from pyqit.measurements import measure_expval_z
 class QuantumModel:
     def __init__(self, ansatz, embedding=None, measure_fn=None,
                  measure_wires=None, device_name="default.qubit", shots=None):
-        """
-        Quantum Model wrapper.
-        
-        Parameters
-        ----------
-        ansatz : BaseAnsatz
-            The blueprint logic (e.g., VQC, QLSTM).
-        device_name : str
-            The PennyLane device string (e.g., 'lightning.qubit').
-        """
         self.ansatz = ansatz
         self.device = qml.device(device_name, wires=ansatz.n_qubits, shots=shots)
         self.embedding = embedding if embedding else AngleEmbedding(ansatz.n_qubits)
@@ -31,9 +21,11 @@ class QuantumModel:
             self.measure_fn = measure_fn
 
         self.shapes = ansatz.get_weight_shapes()
+        self.weight_keys = list(self.shapes.keys())
         self.weights = self._init_weights(self.shapes)
         
-        self.qnode = qml.QNode(self._circuit_wrapper, self.device)
+        # Create QNode with proper interface
+        self.qnode = qml.QNode(self._circuit, self.device, interface='autograd')
 
     def _init_weights(self, shapes):
         """Helper to create random initial weights."""
@@ -42,16 +34,26 @@ class QuantumModel:
             weights[name] = np.random.random(shape, requires_grad=True)
         return weights
 
-    def _circuit_wrapper(self, inputs, weights):
+    def _circuit(self, inputs, *flat_weights):
+        """The quantum circuit - expects flattened weight tensors"""
+        weights_dict = dict(zip(self.weight_keys, flat_weights))
         self.embedding.forward(inputs)
-        
-        self.ansatz.build_circuit(weights)
+        self.ansatz.build_circuit(weights_dict)
         return self.measure_fn(self.measure_wires)
 
     def __call__(self, inputs, weights=None):
+        """Forward pass - can take dict or None"""
         if weights is None:
             weights = self.weights
-        return self.qnode(inputs, weights)
+        
+        flat_weight_values = [weights[k] for k in self.weight_keys]
+        
+        return self.qnode(inputs, *flat_weight_values)
+    
+    def forward_from_tensors(self, inputs, *weight_tensors):
+        """Forward pass taking weight tensors directly as positional args.
+        This is used during gradient computation to avoid dict construction."""
+        return self.qnode(inputs, *weight_tensors)
 
     def update_weights(self, new_weights):
         """Updates the internal state."""

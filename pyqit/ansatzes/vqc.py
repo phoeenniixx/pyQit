@@ -8,7 +8,8 @@ class VQCAnatz(BaseAnsatz):
 
 
     def build_circuit(self, weights):
-        qml.templates.StronglyEntanglingLayers(weights, wires=range(self.n_qubits))
+        w_tensor = weights['weights']
+        qml.templates.StronglyEntanglingLayers(w_tensor, wires=range(self.n_qubits))
         
 
     def get_weight_shapes(self) -> dict:
