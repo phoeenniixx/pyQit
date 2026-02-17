@@ -2,7 +2,7 @@ import pennylane as qml
 from pyqit.ansatzes.base import BaseAnsatz
 
 
-class VQCAnatz(BaseAnsatz):
+class SELAnsatz(BaseAnsatz):
     def __init__(self, n_qubits: int, n_layers: int = 2):
         super().__init__(n_qubits, n_layers)
 

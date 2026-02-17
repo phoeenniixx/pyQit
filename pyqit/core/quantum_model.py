@@ -5,9 +5,9 @@ from pyqit.measurements import measure_expval_z
 
 class QuantumModel:
     def __init__(self, ansatz, embedding=None, measure_fn=None,
-                 measure_wires=None, device_name="default.qubit", shots=None):
+                 measure_wires=None, device="default.qubit", shots=None):
         self.ansatz = ansatz
-        self.device = qml.device(device_name, wires=ansatz.n_qubits, shots=shots)
+        self.device = qml.device(device, wires=ansatz.n_qubits, shots=shots)
         self.embedding = embedding if embedding else AngleEmbedding(ansatz.n_qubits)
 
         if measure_wires is None:

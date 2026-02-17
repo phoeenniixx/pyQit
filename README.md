@@ -8,7 +8,7 @@
 
 ```python
 anastz = anyanastz()
-DLmodel = DLmopdel()
+DLmodel = DLmodel()
 Qm = QuantumModel(anastz, DLmodel)
 trainer = Trainer()
 trainer.fit(Qm) # uses torch
@@ -22,11 +22,13 @@ trainer.fit(Qm) # uses pennylane only
 ```
 here `anastz` and `DLmodel` can be implemented by the user himself or use the implemented ones from the package
 Then package would also have a complete model zoo. That would contain anatsz/hybrid models wrapped using `QuantumModel`.
-User woudl simply call
+
+User would simply call
 ```python
 myModel= hybridmodel() #QuantumModel object
 trainer=Trainer()
 trainer.fit(myModel)
-These would be the official model zoo
 ```
+These would be the official model zoo
+
 
