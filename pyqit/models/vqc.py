@@ -3,7 +3,8 @@ from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.embeddings import AngleEmbedding
 from pyqit.measurements import measure_expval_z, measure_probs
 import pennylane as qml
-import inspect  
+import pennylane.numpy as np
+import inspect
 
 class VQCClassifier(QuantumModel):
     def __init__(self, 
@@ -12,10 +13,28 @@ class VQCClassifier(QuantumModel):
                  ansatz=SELAnsatz,  
                  encoder=AngleEmbedding, 
                  n_classes=2,
-                 measure_fn=measure_expval_z,
+                 measure_fn=None,
                  measure_wires=None,
                  device="default.qubit"):
         
+        if not inspect.isclass(ansatz):
+            raise TypeError(
+                f"'ansatz' must be a class (e.g., SELAnsatz), "
+                f"got {type(ansatz).__name__}"
+            )
+        
+        if not inspect.isclass(encoder):
+            raise TypeError(
+                f"'encoder' must be a class (e.g., AngleEmbedding), "
+                f"got {type(encoder).__name__}"
+            )
+        
+        if n_classes > 2 and n_classes > 2**n_qubits:
+            raise ValueError(
+                f"Cannot classify {n_classes} classes with {n_qubits} qubits. "
+                f"Maximum: {2**n_qubits}. Increase n_qubits or reduce n_classes."
+            )
+
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self.ansatz = ansatz
@@ -25,21 +44,10 @@ class VQCClassifier(QuantumModel):
         self.measure_wires = measure_wires
         self.device = device
 
-        if not inspect.isclass(ansatz):
-            raise TypeError(
-                f"The 'ansatz' argument must be a class type (e.g., SELAnsatz), "
-                f"but received {type(ansatz).__name__}. "
-                f"Did you accidentally instantiate it (e.g. SELAnsatz())?"
-            )
+        self._ansatz_name = self.ansatz.__name__
+        self._encoder_name = self.encoder.__name__
         
         self.ansatz_obj = ansatz(n_qubits=n_qubits, n_layers=n_layers)
-
-        if not inspect.isclass(encoder):
-            raise TypeError(
-                f"The 'encoder' argument must be a class type (e.g., AngleEmbedding), "
-                f"but received {type(encoder).__name__}."
-            )
-
         self.embedding_obj = encoder(n_qubits=n_qubits)
 
         if self.measure_fn is None:
@@ -65,3 +73,19 @@ class VQCClassifier(QuantumModel):
             measure_wires=self._measure_wires,
             device=device
         )
+
+    def __repr__(self):
+        return (
+            f"VQCClassifier(n_qubits={self.n_qubits}, n_layers={self.n_layers}, "
+            f"n_classes={self.n_classes}, ansatz={self._ansatz_name}, "
+            f"encoder={self._encoder_name}, device='{self.device}')"
+        )
+    
+    def __call__(self, inputs, weights=None):
+        raw_output = super().__call__(inputs, weights)
+        
+        if self.n_classes == 2:
+            return (raw_output + 1.0) / 2.0
+        else:
+            class_probs = raw_output[:self.n_classes]
+            return class_probs / np.sum(class_probs)
