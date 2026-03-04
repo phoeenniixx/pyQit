@@ -1,4 +1,4 @@
-from pyqit.core.quantum_model import QuantumModel
+from pyqit.models.quantum_model import QuantumModel
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.embeddings import AngleEmbedding
 from pyqit.measurements import measure_expval_z, measure_probs

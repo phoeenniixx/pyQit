@@ -30,6 +30,10 @@ class Trainer:
 
         X = np.array(X, requires_grad=False)
         y = np.array(y, requires_grad=False)
+
+        if X.ndim == 2:
+            X = X.reshape(len(X), -1) 
+
         n_samples = len(X)
 
         print(f"Starting Pure PennyLane Training on {self.backend_type}...")
@@ -48,30 +52,28 @@ class Trainer:
                 y_batch = y_shuffled[start_idx:end_idx]
                 
                 def batch_cost_fn(*weight_tensors):
-                    preds = model.forward_from_tensors(X_batch, *weight_tensors)
+                    preds = np.array([
+                        model.forward_from_tensors(np.atleast_1d(x), *weight_tensors)
+                        for x in X_batch
+                    ])
                     return loss_fn(preds, y_batch)
-                
+
                 grad_fn = qml.grad(batch_cost_fn)
                 gradients = grad_fn(*current_weights)
-                
                 batch_loss = batch_cost_fn(*current_weights)
-                
-                updated_weights = []
-                for w, g in zip(current_weights, gradients):
-                    new_w = w - self.lr * g
-                    new_w = np.array(new_w, requires_grad=True)
-                    updated_weights.append(new_w)
-                
-                current_weights = updated_weights
-                
+
+                current_weights = [
+                    np.array(w - self.lr * g, requires_grad=True)
+                    for w, g in zip(current_weights, gradients)
+                ]
+
                 epoch_loss += batch_loss
                 num_batches += 1
 
             avg_loss = epoch_loss / num_batches
             print(f"Epoch {epoch+1:03d}/{self.max_epochs} | Avg Loss: {avg_loss:.6f}")
 
-        final_weight_dict = {k: w for k, w in zip(weight_keys, current_weights)}
-        model.update_weights(final_weight_dict)
+        model.update_weights(dict(zip(weight_keys, current_weights)))
         print("Training Complete.")
 
     def _fit_torch(self, model, train_loader, val_loader=None, optimizer=None, loss_fn=None):
