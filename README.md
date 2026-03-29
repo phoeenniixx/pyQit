@@ -37,5 +37,3 @@ trainer=Trainer()
 trainer.fit(myModel)
 ```
 These would be the official model zoo
-
-

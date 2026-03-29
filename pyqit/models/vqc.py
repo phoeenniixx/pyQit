@@ -1,34 +1,45 @@
-from pyqit.models.quantum_model import QuantumModel
-from pyqit.ansatzes.sel import SELAnsatz
-from pyqit.embeddings import AngleEmbedding
-from pyqit.measurements import measure_expval_z, measure_probs
-import pennylane as qml
-import pennylane.numpy as np
 import inspect
 
-class VQCClassifier(QuantumModel):
-    def __init__(self, 
-                 n_qubits=4, 
-                 n_layers=3, 
-                 ansatz=SELAnsatz,  
-                 encoder=AngleEmbedding, 
-                 n_classes=2,
-                 measure_fn=None,
-                 measure_wires=None,
-                 device="default.qubit"):
-        
+import pennylane as qml
+import pennylane.numpy as np
+
+from pyqit.ansatzes.sel import SELAnsatz
+from pyqit.core.embeddings import AngleEmbedding
+from pyqit.core.measurements import measure_expval_z, measure_probs
+from pyqit.models.base.quantum_model import BaseQuantumModel
+from pyqit.utils import _is_torch
+
+
+class VQCClassifier(BaseQuantumModel):
+    _tags = {
+        "object_type": "model",
+        "is_quantum": True,
+    }
+
+    def __init__(
+        self,
+        n_qubits=4,
+        n_layers=3,
+        ansatz=SELAnsatz,
+        encoder=AngleEmbedding,
+        n_classes=2,
+        measure_fn=None,
+        measure_wires=None,
+        backend="pennylane",
+        device="default.qubit",
+    ):
         if not inspect.isclass(ansatz):
             raise TypeError(
                 f"'ansatz' must be a class (e.g., SELAnsatz), "
                 f"got {type(ansatz).__name__}"
             )
-        
+
         if not inspect.isclass(encoder):
             raise TypeError(
                 f"'encoder' must be a class (e.g., AngleEmbedding), "
                 f"got {type(encoder).__name__}"
             )
-        
+
         if n_classes > 2 and n_classes > 2**n_qubits:
             raise ValueError(
                 f"Cannot classify {n_classes} classes with {n_qubits} qubits. "
@@ -39,16 +50,17 @@ class VQCClassifier(QuantumModel):
         self.n_layers = n_layers
         self.ansatz = ansatz
         self.encoder = encoder
-        self.n_classes = n_classes  
+        self.n_classes = n_classes
         self.measure_fn = measure_fn
         self.measure_wires = measure_wires
+        self.backend = backend
         self.device = device
 
         self._ansatz_name = self.ansatz.__name__
         self._encoder_name = self.encoder.__name__
-        
-        self.ansatz_obj = ansatz(n_qubits=n_qubits, n_layers=n_layers)
-        self.embedding_obj = encoder(n_qubits=n_qubits)
+
+        self.ansatz_obj = self.ansatz(n_qubits=n_qubits, n_layers=n_layers)
+        self.embedding_obj = self.encoder(n_qubits=n_qubits)
 
         if self.measure_fn is None:
             if n_classes == 2:
@@ -62,16 +74,16 @@ class VQCClassifier(QuantumModel):
             if n_classes == 2:
                 self._measure_wires = [0]
             else:
-                self._measure_wires = list(range(n_qubits)) 
+                self._measure_wires = list(range(n_qubits))
         else:
             self._measure_wires = self.measure_wires
 
         super().__init__(
-            ansatz=self.ansatz_obj,
-            embedding=self.embedding_obj,
+            ansatz_obj=self.ansatz_obj,
+            embedding_obj=self.embedding_obj,
             measure_fn=self._measure_fn,
             measure_wires=self._measure_wires,
-            device=device
+            device=device,
         )
 
     def __repr__(self):
@@ -80,12 +92,41 @@ class VQCClassifier(QuantumModel):
             f"n_classes={self.n_classes}, ansatz={self._ansatz_name}, "
             f"encoder={self._encoder_name}, device='{self.device}')"
         )
-    
-    def __call__(self, inputs, weights=None):
-        raw_output = super().__call__(inputs, weights)
-        
+
+    def forward(self, X):
+        current_weights = [self.weights[k] for k in self.weight_keys]
+
+        raw_output = self.qnode(X, *current_weights)
+
         if self.n_classes == 2:
             return (raw_output + 1.0) / 2.0
         else:
-            class_probs = raw_output[:self.n_classes]
-            return class_probs / np.sum(class_probs)
+            class_probs = raw_output[: self.n_classes]
+            import pennylane.math as qml_math
+
+            return class_probs / qml_math.sum(class_probs)
+
+    def predict_step(self, X):
+        current_weights = [self.weights[k] for k in self.weight_keys]
+        raw_output = self.qnode(X, *current_weights)
+
+        is_torch = _is_torch(raw_output)
+
+        if self.n_classes == 2:
+            if is_torch:
+                return (raw_output >= 0.0).int()
+            else:
+                return (raw_output >= 0.0).astype(int)
+        else:
+            class_raw = raw_output[: self.n_classes]
+            if is_torch:
+                return class_raw.argmax(dim=0)
+            else:
+                return class_raw.argmax(axis=0)
+
+    @classmethod
+    def get_test_params(cls):
+        return [
+            {"n_qubits": 3, "n_layers": 2, "n_classes": 2},
+            {"n_qubits": 4, "n_layers": 3, "n_classes": 4},
+        ]

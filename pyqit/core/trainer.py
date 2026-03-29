@@ -1,31 +1,34 @@
+from collections.abc import Callable
 import time
-import numpy as np
-from typing import Optional, Callable, List, Dict, Union
 
+import numpy as np
 import pennylane as qml
 import pennylane.numpy as pnp
+from skbase.base import BaseMetaObject
 
+from pyqit.core._loss_mapping import get_loss_fn
 from pyqit.data.datamodule import DataModule
-from pyqit.base import BaseModel
+from pyqit.models.base.base import BaseModel
+
 
 class TrainingHistory:
     def __init__(self):
-        self.train_loss:  List[float] = []
-        self.val_loss:    List[float] = []
-        self.train_acc:   List[float] = []
-        self.val_acc:     List[float] = []
-        self.epoch_times: List[float] = []
-        self.best_epoch:     int   = 0
-        self.best_val_loss:  float = float("inf")
+        self.train_loss: list[float] = []
+        self.val_loss: list[float] = []
+        self.train_acc: list[float] = []
+        self.val_acc: list[float] = []
+        self.epoch_times: list[float] = []
+        self.best_epoch: int = 0
+        self.best_val_loss: float = float("inf")
 
     def record(
         self,
-        epoch:      int,
+        epoch: int,
         train_loss: float,
-        val_loss:   float  = float("nan"),
-        train_acc:  float  = 0.0,
-        val_acc:    float  = 0.0,
-        epoch_time: float  = 0.0,
+        val_loss: float = float("nan"),
+        train_acc: float = 0.0,
+        val_acc: float = 0.0,
+        epoch_time: float = 0.0,
     ) -> None:
         self.train_loss.append(train_loss)
         self.val_loss.append(val_loss)
@@ -34,14 +37,14 @@ class TrainingHistory:
         self.epoch_times.append(epoch_time)
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            self.best_epoch    = epoch
+            self.best_epoch = epoch
 
-    def as_dict(self) -> Dict[str, List[float]]:
+    def as_dict(self) -> dict[str, list[float]]:
         return {
-            "train_loss":  self.train_loss,
-            "val_loss":    self.val_loss,
-            "train_acc":   self.train_acc,
-            "val_acc":     self.val_acc,
+            "train_loss": self.train_loss,
+            "val_loss": self.val_loss,
+            "train_acc": self.train_acc,
+            "val_acc": self.val_acc,
             "epoch_times": self.epoch_times,
         }
 
@@ -55,51 +58,48 @@ class TrainingHistory:
         )
 
 
-
-class Trainer: 
+class Trainer:
     def __init__(
         self,
-        max_epochs:    int   = 30,
+        max_epochs: int = 30,
         learning_rate: float = 0.01,
-        batch_size:    int   = 32,
-        optimizer:     str   = "adam",
-        loss_fn:       Union[str, Callable] = "mse",
-        backend_type:  str   = "auto",
-        verbose:       int   = 5,
-        seed:          Optional[int] = 42,
-        num_workers:   int   = 0,
+        batch_size: int = 32,
+        optimizer: str = "adam",
+        loss_fn: str | Callable = "mse",
+        backend_type: str = "auto",
+        verbose: int = 5,
+        seed: int | None = 42,
+        num_workers: int = 0,
     ):
-        self.max_epochs    = max_epochs
-        self.lr            = learning_rate
-        self.batch_size    = batch_size
-        self.optimizer     = optimizer.lower() if isinstance(optimizer, str) else optimizer
-        self.loss_fn       = loss_fn
-        self.backend_type  = backend_type
-        self.verbose       = verbose
-        self.seed          = seed
-        self.num_workers   = num_workers
-
+        self.max_epochs = max_epochs
+        self.lr = learning_rate
+        self.batch_size = batch_size
+        self.optimizer = optimizer.lower() if isinstance(optimizer, str) else optimizer
+        self.loss_fn = loss_fn
+        self.backend_type = backend_type
+        self.verbose = verbose
+        self.seed = seed
+        self.num_workers = num_workers
 
     def fit(
         self,
-        model:      BaseModel,
+        model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
         backend = self._resolve_backend(model)
 
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
-            backend    = backend,
-            batch_size = self.batch_size,
-            n_qubits   = n_qubits,
-            num_workers= self.num_workers,
+            stage="fit",
+            backend=backend,
+            batch_size=self.batch_size,
+            n_qubits=n_qubits,
         )
 
         if backend == "torch":
             return self._fit_torch(model, datamodule)
         else:
             return self._fit_pennylane(model, datamodule)
-
 
     def _resolve_backend(self, model: BaseModel) -> str:
         if self.backend_type != "auto":
@@ -113,25 +113,26 @@ class Trainer:
         model_type = getattr(model, "metadata", {}).get("model_type", "pure_qml")
         return "torch" if model_type == "hybrid" else "pennylane"
 
-
     def _fit_pennylane(
         self,
-        model:      BaseModel,
+        model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
         history = TrainingHistory()
 
         weight_keys = list(model.weights.keys())
         current_weights = [
-            pnp.array(model.weights[k], requires_grad=True)
-            for k in weight_keys
+            pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
         ]
 
-        loss_fn = self._resolve_loss_fn()
+        loss_fn = get_loss_fn(self.loss_fn, backend="pennylane")
         train_loader = datamodule.train_loader(shuffle=True)
-        val_loader   = datamodule.val_loader(shuffle=False)
+        val_loader = datamodule.val_loader(shuffle=False)
 
-        print(f"[Trainer] PennyLane backend | {self.max_epochs} epochs | lr={self.lr}")
+        if self.verbose:
+            print(
+                f"[Trainer] PennyLane backend | {self.max_epochs} epochs | lr={self.lr}"
+            )
 
         for epoch in range(self.max_epochs):
             t0 = time.time()
@@ -142,41 +143,43 @@ class Trainer:
                 y_b = pnp.array(y_batch, requires_grad=False)
 
                 def batch_cost(*weight_tensors):
-                    preds = pnp.array([
-                        model.forward_from_tensors(pnp.atleast_1d(x), *weight_tensors)
-                        for x in X_b
-                    ])
+                    model.update_weights(dict(zip(weight_keys, weight_tensors)))
+                    preds = pnp.array([model.forward(pnp.atleast_1d(x)) for x in X_b])
                     return loss_fn(preds, y_b)
 
-                grads      = qml.grad(batch_cost)(*current_weights)
+                grads = qml.grad(batch_cost)(*current_weights)
                 batch_loss = float(batch_cost(*current_weights))
                 batch_losses.append(batch_loss)
 
-                current_weights = self._apply_gradients(current_weights, grads, epoch)
+                current_weights = self._apply_gradients_pl(
+                    current_weights, grads, epoch
+                )
+            model.update_weights(dict(zip(weight_keys, current_weights)))
 
             train_loss = float(np.mean(batch_losses))
-            train_acc  = self._accuracy_pennylane(model, current_weights,
-                                                   datamodule.X_train, datamodule.y_train)
+            train_acc = self._accuracy_pl(model, datamodule.X_train, datamodule.y_train)
 
             val_loss, val_acc = float("nan"), float("nan")
             if val_loader is not None:
-                val_loss = self._eval_loss_pennylane(
-                    model, current_weights, datamodule.X_val, datamodule.y_val, loss_fn
+                val_loss = self._eval_loss_pl(
+                    model, datamodule.X_val, datamodule.y_val, loss_fn
                 )
-                val_acc = self._accuracy_pennylane(
-                    model, current_weights, datamodule.X_val, datamodule.y_val
-                )
+                val_acc = self._accuracy_pl(model, datamodule.X_val, datamodule.y_val)
 
             elapsed = time.time() - t0
             history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
 
-            if self.verbose and (epoch % self.verbose == 0 or epoch == self.max_epochs - 1):
-                self._print_epoch(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
-        model.update_weights(dict(zip(weight_keys, current_weights)))
+            if self.verbose and (
+                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
+            ):
+                self._print_epoch(
+                    epoch, train_loss, val_loss, train_acc, val_acc, elapsed
+                )
+
         print("[Trainer] Training complete.")
         return history
 
-    def _apply_gradients(
+    def _apply_gradients_pl(
         self,
         weights: list,
         grads: tuple,
@@ -200,77 +203,209 @@ class Trainer:
 
         for i, (w, g) in enumerate(zip(weights, grads)):
             self._adam_m[i] = b1 * self._adam_m[i] + (1 - b1) * g
-            self._adam_v[i] = b2 * self._adam_v[i] + (1 - b2) * g ** 2
-            m_hat = self._adam_m[i] / (1 - b1 ** t)
-            v_hat = self._adam_v[i] / (1 - b2 ** t)
+            self._adam_v[i] = b2 * self._adam_v[i] + (1 - b2) * g**2
+            m_hat = self._adam_m[i] / (1 - b1**t)
+            v_hat = self._adam_v[i] / (1 - b2**t)
             w_new = w - self.lr * m_hat / (np.sqrt(v_hat) + eps)
             new_weights.append(pnp.array(w_new, requires_grad=True))
 
         return new_weights
 
-    def _accuracy_pennylane(self, model, weights, X, y) -> float:
+    def _accuracy_pl(self, model, X, y) -> float:
         if X is None:
             return float("nan")
-        weight_keys = list(model.weights.keys())
-        original = {k: model.weights[k] for k in weight_keys}
-        model.update_weights(dict(zip(weight_keys, weights)))
-        preds = np.array([
-            model.forward(pnp.atleast_1d(x)) for x in X
-        ])
-        model.update_weights(original)
+        preds = np.array([model.forward(pnp.atleast_1d(x)) for x in X])
+
         if preds.ndim > 1:
             preds = preds.argmax(axis=1)
         else:
             preds = (preds >= 0.5).astype(int)
+
         return float(np.mean(preds == y.astype(int)))
 
-    def _eval_loss_pennylane(self, model, weights, X, y, loss_fn) -> float:
+    def _eval_loss_pl(self, model, X, y, loss_fn) -> float:
         if X is None:
             return float("nan")
-        weight_keys = list(model.weights.keys())
-        preds = pnp.array([
-            model.forward_from_tensors(pnp.atleast_1d(x), *weights)
-            for x in X
-        ])
+        preds = pnp.array([model.forward(pnp.atleast_1d(x)) for x in X])
         return float(loss_fn(preds, pnp.array(y, requires_grad=False)))
-
-
 
     def _fit_torch(
         self,
-        model:      BaseModel,
+        model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        pass  # Placeholder for future PyTorch implementation
+        import time
 
-    def _resolve_loss_fn(self) -> Callable:
-        """Return a callable loss function."""
-        if callable(self.loss_fn):
-            return self.loss_fn
+        import torch
 
-        name = self.loss_fn
-        if name == "mse":
-            return lambda preds, targets: pnp.mean((preds - targets) ** 2)
+        from pyqit.core._loss_mapping import get_loss_fn
 
-        elif name == "hinge":
-            def _hinge(preds, targets):
-                y_signed = 2.0 * targets - 1.0   # {0,1} → {-1,+1}
-                return pnp.mean(pnp.maximum(0, 1 - y_signed * preds))
-            return _hinge
+        history = TrainingHistory()
+        weight_keys = list(model.weights.keys())
+        torch_weights = {}
+        for k in weight_keys:
+            w = model.weights[k]
+            if not isinstance(w, torch.Tensor):
+                w = torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
+            else:
+                w = w.detach().requires_grad_(True)
+            torch_weights[k] = w
+        model.update_weights(torch_weights)
 
-        elif name == "cross_entropy":
-            def _ce(preds, targets):
-                # preds: (n, n_classes) probabilities
-                n = len(targets)
-                probs = pnp.clip(preds, 1e-9, 1.0)
-                log_p = pnp.log(probs[pnp.arange(n), targets.astype(int)])
-                return -pnp.mean(log_p)
-            return _ce
+        parameters = list(model.weights.values())
+        if self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(parameters, lr=self.lr)
+        else:
+            optimizer = torch.optim.Adam(parameters, lr=self.lr)
 
-        raise ValueError(
-            f"Unknown loss function: {name!r}. "
-            f"Choose 'mse', 'hinge', 'cross_entropy', or pass a callable."
-        )
+        loss_fn = get_loss_fn(self.loss_fn, backend="torch")
+        train_loader = datamodule.train_loader(shuffle=True)
+        val_loader = datamodule.val_loader(shuffle=False)
+
+        if self.verbose:
+            print(f"[Trainer] Torch backend | {self.max_epochs} epochs | lr={self.lr}")
+
+        for epoch in range(self.max_epochs):
+            t0 = time.time()
+            batch_losses = []
+
+            for X_batch, y_batch in train_loader:
+                optimizer.zero_grad()
+
+                preds = torch.stack([model.forward(x) for x in X_batch])
+                loss = loss_fn(preds, y_batch.to(dtype=preds.dtype))
+
+                loss.backward()
+
+                optimizer.step()
+
+                batch_losses.append(loss.item())
+
+            train_loss = float(np.mean(batch_losses))
+            train_acc = self._accuracy_torch(
+                model, datamodule.X_train, datamodule.y_train
+            )
+
+            val_loss, val_acc = float("nan"), float("nan")
+            if val_loader is not None:
+                val_loss = self._eval_loss_torch(
+                    model, datamodule.X_val, datamodule.y_val, loss_fn
+                )
+                val_acc = self._accuracy_torch(
+                    model, datamodule.X_val, datamodule.y_val
+                )
+
+            elapsed = time.time() - t0
+            history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
+
+            if self.verbose and (
+                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
+            ):
+                self._print_epoch(
+                    epoch, train_loss, val_loss, train_acc, val_acc, elapsed
+                )
+
+        print("[Trainer] Training complete.")
+        return history
+
+    def _accuracy_torch(self, model, X, y) -> float:
+        import torch
+
+        if X is None:
+            return float("nan")
+
+        with torch.no_grad():
+            preds = torch.stack([model.forward(torch.as_tensor(x)) for x in X])
+            y_tens = torch.as_tensor(y).squeeze()
+
+            if preds.ndim > 1 and preds.shape[1] > 1:
+                preds_labels = preds.argmax(dim=1)
+            else:
+                preds_labels = (preds >= 0.5).to(torch.int)
+
+            return float((preds_labels == y_tens).float().mean().item())
+
+    def _eval_loss_torch(self, model, X, y, loss_fn) -> float:
+        import torch
+
+        if X is None:
+            return float("nan")
+
+        with torch.no_grad():
+            preds = torch.stack([model.forward(torch.as_tensor(x)) for x in X])
+            loss = loss_fn(preds, torch.as_tensor(y).to(dtype=preds.dtype))
+
+        return float(loss.item())
+
+    def predict(
+        self,
+        model: BaseModel | BaseMetaObject,
+        datamodule: DataModule,
+        return_format: str = "auto",
+    ) -> np.ndarray:
+        if not datamodule._is_setup:
+            n_qubits = getattr(model, "n_qubits", None)
+            datamodule.setup(
+                stage="predict",
+                backend=self.backend_type,
+                batch_size=self.batch_size,
+                n_qubits=n_qubits,
+            )
+
+        if datamodule.X_test is not None:
+            loader = datamodule.test_loader(shuffle=False)
+        elif datamodule.X_val is not None:
+            loader = datamodule.val_loader(shuffle=False)
+        else:
+            loader = datamodule.train_loader(shuffle=False)
+
+        all_preds = []
+
+        if self.backend_type == "torch":
+            import torch
+
+            context = torch.no_grad()
+        else:
+            import contextlib
+
+            context = contextlib.nullcontext()
+
+        with context:
+            for X_batch, _ in loader:
+                if self.backend_type == "pennylane":
+                    X_b = pnp.array(X_batch, requires_grad=False)
+                else:
+                    X_b = X_batch
+
+                batch_preds = model.predict_step(X_b)
+                all_preds.append(batch_preds)
+
+        if not all_preds:
+            return np.array([])
+
+        is_torch_output = type(all_preds[0]).__module__.startswith("torch")
+
+        target_format = return_format
+        if return_format == "auto":
+            target_format = "torch" if is_torch_output else "numpy"
+
+        if target_format == "torch":
+            import torch
+
+            tensor_preds = [
+                p if type(p).__module__.startswith("torch") else torch.as_tensor(p)
+                for p in all_preds
+            ]
+            return torch.cat(tensor_preds, dim=0)
+
+        else:
+            numpy_preds = [
+                p.detach().cpu().numpy()
+                if type(p).__module__.startswith("torch")
+                else np.asarray(p)
+                for p in all_preds
+            ]
+            return np.concatenate(numpy_preds, axis=0)
 
     @staticmethod
     def _print_epoch(epoch, train_loss, val_loss, train_acc, val_acc, elapsed):
@@ -283,4 +418,10 @@ class Trainer:
             f"  epoch {epoch:>4}  "
             f"loss={train_loss:.4f}  acc={train_acc:.3f}  "
             f"{val_str}  [{elapsed:.1f}s]"
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"Trainer(backend={self.backend_type!r}, "
+            f"max_epochs={self.max_epochs}, lr={self.lr})"
         )
