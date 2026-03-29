@@ -7,6 +7,7 @@
 - any anastz could go with any DL backbone (ideally, not sure how much is feasible - tbd)
 
 *Will add better vignettes once i have my ideas consolidated in my mind*
+
 for now pls do with this useless ones or look at [tests](https://github.com/phoeenniixx/pyQit/blob/main/pyqit/tests/test_all_models.py) for some idea how it might look like:
 ```python
 # no torch
