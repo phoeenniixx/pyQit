@@ -144,7 +144,9 @@ class Trainer:
 
                 def batch_cost(*weight_tensors):
                     model.update_weights(dict(zip(weight_keys, weight_tensors)))
-                    preds = pnp.array([model.forward(pnp.atleast_1d(x)) for x in X_b])
+                    preds = model.forward(X_b, *weight_tensors)
+                    if preds.ndim == 0:
+                        preds = pnp.expand_dims(preds, axis=0)
                     return loss_fn(preds, y_b)
 
                 grads = qml.grad(batch_cost)(*current_weights)
@@ -243,6 +245,7 @@ class Trainer:
         history = TrainingHistory()
         weight_keys = list(model.weights.keys())
         torch_weights = {}
+
         for k in weight_keys:
             w = model.weights[k]
             if not isinstance(w, torch.Tensor):
@@ -250,6 +253,7 @@ class Trainer:
             else:
                 w = w.detach().requires_grad_(True)
             torch_weights[k] = w
+
         model.update_weights(torch_weights)
 
         parameters = list(model.weights.values())
@@ -272,7 +276,17 @@ class Trainer:
             for X_batch, y_batch in train_loader:
                 optimizer.zero_grad()
 
-                preds = torch.stack([model.forward(x) for x in X_batch])
+                preds = model.forward(X_batch)
+
+                if (
+                    self.loss_fn == "cross_entropy"
+                    and preds.ndim > 1
+                    and preds.shape[1] > 1
+                ):
+                    y_batch = y_batch.long()
+                else:
+                    y_batch = y_batch.to(preds.dtype)
+
                 loss = loss_fn(preds, y_batch.to(dtype=preds.dtype))
 
                 loss.backward()
@@ -315,7 +329,8 @@ class Trainer:
             return float("nan")
 
         with torch.no_grad():
-            preds = torch.stack([model.forward(torch.as_tensor(x)) for x in X])
+            X_tens = torch.as_tensor(X)
+            preds = model.forward(X_tens)
             y_tens = torch.as_tensor(y).squeeze()
 
             if preds.ndim > 1 and preds.shape[1] > 1:

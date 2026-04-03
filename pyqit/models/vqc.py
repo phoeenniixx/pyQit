@@ -93,18 +93,25 @@ class VQCClassifier(BaseQuantumModel):
             f"encoder={self._encoder_name}, device='{self.device}')"
         )
 
-    def forward(self, X):
-        current_weights = [self.weights[k] for k in self.weight_keys]
+    def forward(self, X, *custom_weights):
+        current_weights = (
+            custom_weights
+            if custom_weights
+            else [self.weights[k] for k in self.weight_keys]
+        )
 
         raw_output = self.qnode(X, *current_weights)
 
         if self.n_classes == 2:
             return (raw_output + 1.0) / 2.0
         else:
-            class_probs = raw_output[: self.n_classes]
+            if raw_output.ndim == 1:
+                class_probs = raw_output[: self.n_classes]
+            else:
+                class_probs = raw_output[:, : self.n_classes]
             import pennylane.math as qml_math
 
-            return class_probs / qml_math.sum(class_probs)
+            return class_probs / qml_math.sum(class_probs, axis=-1, keepdims=True)
 
     def predict_step(self, X):
         current_weights = [self.weights[k] for k in self.weight_keys]
