@@ -24,7 +24,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
     # Lincense yet to decide
 ]
-description = "A quantum simulation and machine learning framework"
+description = "A high-level orchestration and pipeline framework for quantum machine learning"
 
 dependencies = [
   "pennylane <0.45.0",
