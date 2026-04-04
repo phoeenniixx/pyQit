@@ -87,6 +87,9 @@ class Trainer:
         datamodule: DataModule,
     ) -> TrainingHistory:
         backend = self._resolve_backend(model)
+        model_encoder_class = None
+        if hasattr(model, "_embedding_obj"):
+            model_encoder_class = type(model._embedding_obj)
 
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
@@ -94,6 +97,7 @@ class Trainer:
             backend=backend,
             batch_size=self.batch_size,
             n_qubits=n_qubits,
+            encoder=model_encoder_class,
         )
 
         if backend == "torch":
