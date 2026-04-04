@@ -119,7 +119,24 @@ class QuantumPipeline(BaseMetaObject):
         self, datamodule: DataModule, trainers=None, fit_mode: str = "sequential_greedy"
     ):
         if not datamodule._is_setup:
-            datamodule.setup()
+            first_model = self.steps[0][1].model
+            n_qubits = getattr(first_model, "n_qubits", None)
+
+            encoder_class = None
+            if hasattr(first_model, "_embedding_obj"):
+                encoder_class = type(first_model._embedding_obj)
+
+            first_trainer = self._get_trainer(trainers, 0, self.steps[0][0])
+            target_batch_size = getattr(
+                first_trainer, "batch_size", getattr(datamodule, "batch_size", 32)
+            )
+
+            datamodule.setup(
+                backend=getattr(first_model, "backend", "pennylane"),
+                batch_size=target_batch_size,
+                n_qubits=n_qubits,
+                encoder=encoder_class,
+            )
 
         if self.mode == "ensemble":
             self._fit_independent(datamodule, trainers)
@@ -289,8 +306,20 @@ class QuantumPipeline(BaseMetaObject):
     ):
         dummy_y = np.zeros(len(X))
         dm = DataModule(X=X, y=dummy_y, batch_size=batch_size, split=(0.0, 0.0, 1.0))
+        first_stage_model = self.steps[0][1].model
+        n_qubits = getattr(first_stage_model, "n_qubits", None)
 
-        dm.setup(stage="predict", backend=backend, batch_size=batch_size)
+        encoder_class = None
+        if hasattr(first_stage_model, "_embedding_obj"):
+            encoder_class = type(first_stage_model._embedding_obj)
+
+        dm.setup(
+            stage="predict",
+            backend=backend,
+            batch_size=batch_size,
+            n_qubits=n_qubits,
+            encoder=encoder_class,
+        )
 
         temp_trainer = Trainer(backend_type=backend, batch_size=batch_size)
 

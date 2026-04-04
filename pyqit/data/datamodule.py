@@ -297,16 +297,11 @@ class DataModule:
         if self._is_setup and not force:
             return self
 
-        if backend is not None:
-            self._backend = backend
-        if batch_size is not None:
-            self.batch_size = batch_size
+        self._backend = backend
+        self.batch_size = batch_size
 
-        if encoder is not None:
-            self.encoder = encoder
-
-        if n_qubits is not None:
-            self.n_qubits = n_qubits
+        self.encoder = encoder
+        self.n_qubits = n_qubits
 
         active_encoder = encoder or self.encoder
 
