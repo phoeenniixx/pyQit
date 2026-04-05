@@ -175,9 +175,7 @@ class Trainer:
             elapsed = time.time() - t0
             history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
 
-            if self.verbose and (
-                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
-            ):
+            if self.verbose and (epoch >= 0 or epoch == self.max_epochs - 1):
                 self._print_epoch(
                     epoch, train_loss, val_loss, train_acc, val_acc, elapsed
                 )
@@ -316,9 +314,7 @@ class Trainer:
             elapsed = time.time() - t0
             history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
 
-            if self.verbose and (
-                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
-            ):
+            if self.verbose and (epoch >= 0 or epoch == self.max_epochs - 1):
                 self._print_epoch(
                     epoch, train_loss, val_loss, train_acc, val_acc, elapsed
                 )
