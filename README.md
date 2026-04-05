@@ -37,3 +37,5 @@ preds = pipeline.predict(X_new, batch_size=8, backend="pennylane")
 You can also train just QMLmodel using `Trainer`
 here `anyQMLmodel` and `DLmodel` can be implemented by the user themselves or use the implemented ones from the package
 Then package would also have a complete model zoo.
+
+> ***Have a look at a basic tutorial [here](https://github.com/phoeenniixx/pyQit/tree/main/doc/tutorials/vqc.ipynb) (This is how the flow would look like in future, still working on making data module and Trainer etc more "user friendly" and expressive)***
