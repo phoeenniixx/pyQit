@@ -1,6 +1,8 @@
 import time
 
-from pytorch_lightning.callbacks import Callback
+from skbase.utils.dependencies import _safe_import
+
+Callback = _safe_import("lightning.pytorch", "Callback")
 
 
 class HistoryCallback(Callback):

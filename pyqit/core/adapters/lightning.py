@@ -1,5 +1,8 @@
-from lightning.pytorch import LightningDataModule, LightningModule
+from skbase.utils.dependencies import _safe_import
 import torch
+
+LightningModule = _safe_import("lightning.pytorch", "LightningModule")
+LightningDataModule = _safe_import("lightning.pytorch", "LightningDataModule")
 
 
 class _LightningModelAdapter(LightningModule):

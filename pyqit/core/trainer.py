@@ -5,7 +5,7 @@ import numpy as np
 import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
-from skbase.utils.dependencies import _check_soft_dependencies
+from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 from pyqit.core._loss_mapping import get_loss_fn
 from pyqit.data.datamodule import DataModule
@@ -365,8 +365,7 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        from lightning.pytorch import Trainer
-        from lightning.pytorch.callbacks import RichProgressBar
+        Trainer = _safe_import("lightning.pytorch", "Trainer")
         import torch
 
         from pyqit.core._loss_mapping import get_loss_fn
@@ -392,8 +391,6 @@ class Trainer:
 
         history = TrainingHistory()
         callbacks = [HistoryCallback(history)]
-        if self.verbose >= 0:
-            callbacks.append(RichProgressBar())
 
         pl_trainer = Trainer(
             max_epochs=self.max_epochs,
