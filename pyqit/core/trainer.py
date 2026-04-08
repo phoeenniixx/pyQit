@@ -365,105 +365,45 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        import time
-
+        from lightning.pytorch import Trainer
+        from lightning.pytorch.callbacks import RichProgressBar
         import torch
 
         from pyqit.core._loss_mapping import get_loss_fn
+        from pyqit.core.adapters.lightning import (
+            _LightningDataAdapter,
+            _LightningModelAdapter,
+        )
+        from pyqit.core.callbacks.history import HistoryCallback
 
-        history = TrainingHistory()
-        weight_keys = list(model.weights.keys())
-        torch_weights = {}
-
-        for k in weight_keys:
-            w = model.weights[k]
-            if not isinstance(w, torch.Tensor):
-                w = torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
-            else:
-                w = w.detach().requires_grad_(True)
-            torch_weights[k] = w
-
+        torch_weights = {
+            k: (
+                torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
+                if not isinstance(w, torch.Tensor)
+                else w.detach().requires_grad_(True)
+            )
+            for k, w in model.weights.items()
+        }
         model.update_weights(torch_weights)
 
-        parameters = list(model.weights.values())
-        if self.optimizer == "sgd":
-            optimizer = torch.optim.SGD(parameters, lr=self.lr)
-        else:
-            optimizer = torch.optim.Adam(parameters, lr=self.lr)
+        loss_func = get_loss_fn(self.loss_fn, backend="torch")
+        pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)
+        pl_data = _LightningDataAdapter(datamodule)
 
-        loss_fn = get_loss_fn(self.loss_fn, backend="torch")
-        train_loader = datamodule.train_loader(shuffle=True)
-        val_loader = datamodule.val_loader(shuffle=False)
+        history = TrainingHistory()
+        callbacks = [HistoryCallback(history)]
+        if self.verbose >= 0:
+            callbacks.append(RichProgressBar())
 
-        with self._get_progress_context() as progress:
-            if progress:
-                task_id = progress.add_task("[cyan]Training...", total=self.max_epochs)
+        pl_trainer = Trainer(
+            max_epochs=self.max_epochs,
+            enable_progress_bar=(self.verbose >= 0),
+            callbacks=callbacks,
+            logger=False,
+            enable_model_summary=(self.verbose >= 2),
+        )
 
-            for epoch in range(self.max_epochs):
-                t0 = time.time()
-                batch_losses = []
-
-                for X_batch, y_batch in train_loader:
-                    optimizer.zero_grad()
-
-                    preds = model.forward(X_batch)
-
-                    if (
-                        self.loss_fn == "cross_entropy"
-                        and preds.ndim > 1
-                        and preds.shape[1] > 1
-                    ):
-                        y_batch = y_batch.long()
-                    else:
-                        y_batch = y_batch.to(preds.dtype)
-
-                    loss = loss_fn(preds, y_batch.to(dtype=preds.dtype))
-                    loss.backward()
-                    optimizer.step()
-
-                    batch_losses.append(loss.item())
-
-                train_loss = float(np.mean(batch_losses))
-                train_acc = self._accuracy_torch(
-                    model, datamodule.X_train, datamodule.y_train
-                )
-
-                val_loss, val_acc = float("nan"), float("nan")
-                if val_loader is not None:
-                    val_loss = self._eval_loss_torch(
-                        model, datamodule.X_val, datamodule.y_val, loss_fn
-                    )
-                    val_acc = self._accuracy_torch(
-                        model, datamodule.X_val, datamodule.y_val
-                    )
-
-                elapsed = time.time() - t0
-                history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
-
-                if self.verbose >= 0:
-                    if progress:
-                        val_str = (
-                            f"| Val Loss: {val_loss:.4f}"
-                            if not np.isnan(val_loss)
-                            else ""
-                        )
-                        progress.update(
-                            task_id,
-                            completed=epoch + 1,
-                            description=f"[cyan]Epoch {epoch+1}/{self.max_epochs} \
-                                | Loss: {train_loss:.4f} {val_str}",
-                        )
-                        if epoch + 1 == self.max_epochs:
-                            progress.refresh()
-                            time.sleep(0.05)
-                    else:
-                        self._native_progress(epoch, train_loss, val_loss, elapsed)
-
-        if self.verbose >= 1:
-            if HAS_RICH:
-                console.print("[bold green][Trainer] Training complete.[/bold green]")
-            else:
-                print("[Trainer] Training complete.")
+        pl_trainer.fit(pl_model, datamodule=pl_data)
 
         return history
 

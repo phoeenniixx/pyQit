@@ -37,8 +37,14 @@ dependencies = [
 [project.optional-dependencies]
 all_extras = [
   "torch >=2.0.0,!=2.0.1,<3.0.0",
+  "lightning",
   "matplotlib",
   "rich"
+]
+
+pytorch = [
+  "torch >=2.0.0,!=2.0.1,<3.0.0",
+  "lightning",
 ]
 
 dev = [
