@@ -2,9 +2,10 @@
 
 ## Current Plan (sub to change any time >_<)
 
-- anastz -> `QuantumPipeline` wrapper that connects the anastz and DL model (if any) -> `Trainer` (with/w/o `torch`)
+- ansatz -> `QuantumPipeline` wrapper that connects the ansatz and DL model (if any) -> `Trainer` (with/w/o `torch`)
 - Data preprocessing techniques (no idea how to do that rn) - maybe using a `lightning` type of data module (thanks a lot `lightning`). But as `lightning` has a core dep of `torch`, I have to reinvent(?) it ig
-- any anastz could go with any DL backbone (ideally, not sure how much is feasible - tbd)
+- any ansatz could go with any DL backbone (ideally, not sure how much is feasible - tbd)
+- `torch` is used with `lightning` as a imp soft-dep now!!
 
 *Will add better vignettes once i have my ideas consolidated in my mind*
 
