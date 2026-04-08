@@ -1,6 +1,6 @@
 from skbase.utils.dependencies import _safe_import
-import torch
 
+torch = _safe_import("torch")
 LightningModule = _safe_import("lightning.pytorch", "LightningModule")
 LightningDataModule = _safe_import("lightning.pytorch", "LightningDataModule")
 
