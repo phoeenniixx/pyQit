@@ -86,8 +86,8 @@ class Trainer:
         verbose: int = 2,
         seed: int | None = 42,
         num_workers: int = 2,
-        enable_checkpointing: bool = True,
-        logger: bool | object = True,
+        enable_checkpointing: bool = False,
+        logger: bool | object = False,
         lightning_accelerator: str = "cpu",
     ):
         self.max_epochs = max_epochs
