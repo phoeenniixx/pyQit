@@ -1,8 +1,23 @@
-from skbase.utils.dependencies import _safe_import
+from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 torch = _safe_import("torch")
-LightningModule = _safe_import("lightning.pytorch", "LightningModule")
-LightningDataModule = _safe_import("lightning.pytorch", "LightningDataModule")
+if _check_soft_dependencies("lightning", severity="none"):
+    from lightning.pytorch import LightningDataModule, LightningModule
+else:
+
+    class LightningModule:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "Lightning is not installed. "
+                "Please install it to use the PyTorch backend."
+            )
+
+    class LightningDataModule:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "Lightning is not installed. "
+                "Please install it to use the PyTorch backend."
+            )
 
 
 class _LightningModelAdapter(LightningModule):

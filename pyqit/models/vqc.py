@@ -143,7 +143,6 @@ class VQCClassifier(BaseQuantumModel):
                 "n_classes": 2,
                 "ansatz": SELAnsatz,
                 "encoder": IQPEmbedding,
-                "device": "default.qutrit",
             },
             {
                 "n_qubits": 4,
@@ -151,6 +150,6 @@ class VQCClassifier(BaseQuantumModel):
                 "n_classes": 4,
                 "ansatz": SELAnsatz,
                 "encoder": AmplitudeEmbedding,
-                "device": "default.gaussian",
+                "trainer_kwargs": {"loss_fn": "cross_entropy"},
             },
         ]

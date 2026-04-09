@@ -81,7 +81,7 @@ class AmplitudeEmbedding(BaseEmbedding):
 
     @classmethod
     def get_test_params(cls):
-        return {"n_qubits": 2}
+        return [{"n_qubits": 2}]
 
 
 class IQPEmbedding(BaseEmbedding):
@@ -97,4 +97,4 @@ class IQPEmbedding(BaseEmbedding):
 
     @classmethod
     def get_test_params(cls):
-        return {"n_qubits": 2}
+        return [{"n_qubits": 2}]

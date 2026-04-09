@@ -91,6 +91,9 @@ requires = [
   "setuptools>=70.0.0",
 ]
 
+[tool.pytest.ini_options]
+addopts = "-v"
+
 [tool.ruff]
 line-length = 88
 exclude = [

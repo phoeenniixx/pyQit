@@ -85,7 +85,10 @@ class Trainer:
         backend_type: str = "auto",
         verbose: int = 2,
         seed: int | None = 42,
-        num_workers: int = 0,
+        num_workers: int = 2,
+        enable_checkpointing: bool = True,
+        logger: bool | object = True,
+        lightning_accelerator: str = "cpu",
     ):
         self.max_epochs = max_epochs
         self.lr = learning_rate
@@ -96,6 +99,9 @@ class Trainer:
         self.verbose = verbose
         self.seed = seed
         self.num_workers = num_workers
+        self.enable_checkpointing = enable_checkpointing
+        self.logger = logger
+        self.lightning_accelerator = lightning_accelerator
 
     def fit(
         self,
@@ -237,6 +243,19 @@ class Trainer:
         loss_fn = get_loss_fn(self.loss_fn, backend="pennylane")
         train_loader = datamodule.train_loader(shuffle=True)
         val_loader = datamodule.val_loader(shuffle=False)
+        if self.logger and self.logger is not True:
+            import warnings
+
+            warnings.warn(
+                f"You passed a custom logger ({type(self.logger).__name__}) "
+                "to the Trainer, "
+                "but the 'pennylane' backend does not support Lightning loggers. "
+                "Metrics will be stored in the TrainingHistory object instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        best_native_val_loss = float("inf")
 
         with self._get_progress_context() as progress:
             if progress:
@@ -283,6 +302,22 @@ class Trainer:
 
                 elapsed = time.time() - t0
                 history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
+
+                if self.enable_checkpointing and not np.isnan(val_loss):
+                    if val_loss < best_native_val_loss:
+                        best_native_val_loss = val_loss
+
+                        checkpoint_path = "pyqit_pennylane_checkpoint.npz"
+                        numpy_weights = {
+                            k: np.array(v) for k, v in zip(weight_keys, current_weights)
+                        }
+                        np.savez(checkpoint_path, **numpy_weights)
+
+                        if self.verbose >= 1 and not HAS_RICH:
+                            print(
+                                "[Checkpoint] Saved new best model "
+                                f"(val_loss: {val_loss:.4f})"
+                            )
 
                 if self.verbose >= 0:
                     if progress:
@@ -365,8 +400,15 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        Trainer = _safe_import("lightning.pytorch", "Trainer")
-        import torch
+        if _check_soft_dependencies("lightning", severity="none"):
+            from lightning.pytorch import Trainer as LightningTrainer
+            from lightning.pytorch.callbacks import ModelCheckpoint
+        else:
+            raise ImportError(
+                "Lightning is not installed. "
+                "Please install it to use the PyTorch backend."
+            )
+        torch = _safe_import("torch")
 
         from pyqit.core._loss_mapping import get_loss_fn
         from pyqit.core.adapters.lightning import (
@@ -391,13 +433,17 @@ class Trainer:
 
         history = TrainingHistory()
         callbacks = [HistoryCallback(history)]
+        if self.enable_checkpointing:
+            callbacks.append(ModelCheckpoint(save_weights_only=True))
 
-        pl_trainer = Trainer(
+        pl_trainer = LightningTrainer(
             max_epochs=self.max_epochs,
             enable_progress_bar=(self.verbose >= 0),
             callbacks=callbacks,
-            logger=False,
+            logger=self.logger,
             enable_model_summary=(self.verbose >= 2),
+            enable_checkpointing=self.enable_checkpointing,
+            accelerator=self.lightning_accelerator,
         )
 
         pl_trainer.fit(pl_model, datamodule=pl_data)
