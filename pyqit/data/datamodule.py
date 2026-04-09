@@ -201,8 +201,6 @@ class DataModule:
         y,
         name: str = "dataset",
         normalize: str | None = None,
-        encoder: type | None = None,
-        n_qubits: int | None = None,
         split: tuple = (0.70, 0.15, 0.15),
         stratify: bool = False,
         seed: int | None = 42,
@@ -216,17 +214,6 @@ class DataModule:
                 f"Numpy normalizers: {self._VALID_NORMALIZE}\n"
                 f"For torch transforms pass them via transform=."
             )
-        if encoder is not None:
-            if not isinstance(encoder, type):
-                raise TypeError(
-                    f"encoder= must be a class (e.g. AngleEmbedding), "
-                    f"not an instance. Got {type(encoder).__name__}."
-                )
-            if not hasattr(encoder, "PRESCALE"):
-                raise TypeError(
-                    f"{encoder.__name__} has no PRESCALE attribute. "
-                    f"Subclass BaseEmbedding and define PRESCALE on the class."
-                )
         if len(split) != 3:
             raise ValueError(
                 f"split must be a 3-tuple (train, val, test), got {split!r}."
@@ -247,8 +234,6 @@ class DataModule:
 
         self.name = name
         self.normalize = normalize
-        self.encoder = encoder
-        self.n_qubits = n_qubits
         self.split = (train, val, test)
         self.stratify = stratify
         self.seed = seed
@@ -306,15 +291,21 @@ class DataModule:
         backend: str | None = None,
         batch_size: int | None = None,
         n_qubits: int | None = None,
+        encoder: type | None = None,
         force: bool = False,
     ) -> "DataModule":
         if self._is_setup and not force:
             return self
 
-        if backend is not None:
-            self._backend = backend
-        if batch_size is not None:
-            self.batch_size = batch_size
+        self._backend = backend
+        self.batch_size = batch_size
+
+        self.encoder = encoder
+        self.n_qubits = n_qubits
+
+        active_encoder = encoder or self.encoder
+
+        prescale = active_encoder.PRESCALE if active_encoder is not None else None
         nq = n_qubits or self.n_qubits
 
         numpy_fns, torch_fns = [], []
@@ -489,8 +480,6 @@ class DataModule:
     def reconfigure(self, **kwargs) -> "DataModule":
         _ok = {
             "normalize",
-            "encoder",
-            "n_qubits",
             "split",
             "stratify",
             "seed",
@@ -516,11 +505,10 @@ class DataModule:
         pass
 
     def __repr__(self):
-        enc = self.encoder.__name__ if self.encoder is not None else "none"
         return (
             f"DataModule(name={self.name!r}, n={self.n_samples}, "
             f"features={self.n_features}, classes={self.n_classes}, "
-            f"normalize={self.normalize!r}, encoder={enc!r}, "
+            f"normalize={self.normalize!r}, "
             f"status={'ready' if self._is_setup else 'pending'})"
         )
 

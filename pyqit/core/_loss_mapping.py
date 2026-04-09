@@ -29,7 +29,13 @@ def get_loss_fn(name: str | Callable, backend: str = "pennylane") -> Callable:
         if name == "mse":
             return F.mse_loss
         elif name == "cross_entropy":
-            return F.binary_cross_entropy
+
+            def ce_wrapper(preds, targets):
+                if targets.ndim == 1:
+                    return F.cross_entropy(preds, targets.long())
+                return F.cross_entropy(preds, targets)
+
+            return ce_wrapper
         else:
             raise NotImplementedError(f"Torch loss '{name}' not yet mapped.")
 

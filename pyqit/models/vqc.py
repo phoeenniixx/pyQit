@@ -133,7 +133,23 @@ class VQCClassifier(BaseQuantumModel):
 
     @classmethod
     def get_test_params(cls):
+        from pyqit.core.embeddings import AmplitudeEmbedding, IQPEmbedding
+
         return [
-            {"n_qubits": 3, "n_layers": 2, "n_classes": 2},
-            {"n_qubits": 4, "n_layers": 3, "n_classes": 4},
+            {},
+            {
+                "n_qubits": 3,
+                "n_layers": 2,
+                "n_classes": 2,
+                "ansatz": SELAnsatz,
+                "encoder": IQPEmbedding,
+            },
+            {
+                "n_qubits": 4,
+                "n_layers": 3,
+                "n_classes": 4,
+                "ansatz": SELAnsatz,
+                "encoder": AmplitudeEmbedding,
+                "trainer_kwargs": {"loss_fn": "cross_entropy"},
+            },
         ]

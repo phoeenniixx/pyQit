@@ -2,13 +2,16 @@
 
 ## Current Plan (sub to change any time >_<)
 
-- anastz -> `QuantumPipeline` wrapper that connects the anastz and DL model (if any) -> `Trainer` (with/w/o `torch`)
+- ansatz -> `QuantumPipeline` wrapper that connects the ansatz and DL model (if any) -> `Trainer` (with/w/o `torch`)
 - Data preprocessing techniques (no idea how to do that rn) - maybe using a `lightning` type of data module (thanks a lot `lightning`). But as `lightning` has a core dep of `torch`, I have to reinvent(?) it ig
-- any anastz could go with any DL backbone (ideally, not sure how much is feasible - tbd)
+- any ansatz could go with any DL backbone (ideally, not sure how much is feasible - tbd)
+- `torch` is used with `lightning` as a imp soft-dep now!!
 
 *Will add better vignettes once i have my ideas consolidated in my mind*
 
-for now pls do with this useless ones or look at [tests](https://github.com/phoeenniixx/pyQit/blob/main/pyqit/tests/test_all_models.py) for some idea how it might look like:
+> ***Have a look at a basic tutorial [here](https://github.com/phoeenniixx/pyQit/tree/main/doc/tutorials/vqc.ipynb) (This is how the flow would look like in future, still working on making data module and Trainer etc more "user friendly" and expressive)***
+
+for some idea how it might look like:
 ```python
 # no torch
 qml_model= QMLmodel(...) # may use their own ansatz?

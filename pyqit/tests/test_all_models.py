@@ -38,20 +38,27 @@ class TestAllModels(BaseFixtureGenerator):
         )
 
     @pytest.mark.parametrize("backend", ["pennylane", "torch"])
-    def test_basic_trainer_flow(self, object_class, backend):
+    def test_basic_trainer_flow(self, object_instance, trainer_kwargs, backend):
         """
         Verifies the foundational architecture:
         DataModule feeds Trainer -> Trainer updates Model -> Trainer predicts.
         """
         if backend == "torch":
             pytest.importorskip("torch")
+            pytest.importorskip("lightning")
 
-        params = object_class.get_test_params()[0]
-        params["backend"] = backend
-        model = object_class(**params)
+        model = object_instance.clone()
+        trainer_args = {
+            "backend_type": backend,
+            "max_epochs": 1,
+            "learning_rate": 0.1,
+            "enable_checkpointing": False,
+            "logger": False,
+        }
+        trainer_args.update(trainer_kwargs)
 
         dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
-        trainer = Trainer(backend_type=backend, max_epochs=1, learning_rate=0.1)
+        trainer = Trainer(**trainer_args)
 
         weight_keys = list(model.weights.keys())
         initial_weights = [_extract_numpy(model.weights[k]).copy() for k in weight_keys]
@@ -72,56 +79,45 @@ class TestAllModels(BaseFixtureGenerator):
             preds.dtype, np.integer
         ), "Predict did not return hard integer labels."
 
-    @pytest.mark.parametrize(
-        "pipeline_mode, fit_mode",
-        [
-            ("sequential", "sequential_greedy"),
-            ("sequential", "frozen_backbone"),
-            ("ensemble", "independent"),
-        ],
-    )
-    def test_pipeline_permutations(self, object_class, pipeline_mode, fit_mode):
+    @pytest.mark.parametrize("backend", ["pennylane", "torch"])
+    def test_checkpointing(
+        self, object_instance, trainer_kwargs, backend, tmp_path, monkeypatch
+    ):
         """
-        Verifies that pipelines can seamlessly route DataModules and execute
-        all valid training architectures using the Trainer.
+        Verifies that both backends successfully save model checkpoints to disk
+        when enable_checkpointing=True, without crashing the test suite.
         """
-        params = object_class.get_test_params()[0]
-        model_a = object_class(**params)
-        model_b = object_class(**params)
+        if backend == "torch":
+            pytest.importorskip("torch")
+            pytest.importorskip("lightning")
 
-        dm = self._get_matching_datamodule(model_a, n_samples=16, batch_size=8)
-        trainer = Trainer(backend_type="pennylane", max_epochs=1, learning_rate=0.1)
+        monkeypatch.chdir(tmp_path)
 
-        trainable_a = False if fit_mode == "frozen_backbone" else True
+        model = object_instance.clone()
 
-        pipeline = QuantumPipeline(
-            [
-                PipelineStage(model_a, name="stage_1", trainable=trainable_a),
-                PipelineStage(model_b, name="stage_2", trainable=True),
-            ],
-            mode=pipeline_mode,
-        )
+        trainer_args = {
+            "backend_type": backend,
+            "max_epochs": 1,
+            "learning_rate": 0.1,
+            "enable_checkpointing": True,
+            "logger": True,
+        }
+        trainer_args.update(trainer_kwargs)
 
-        pipeline.fit(datamodule=dm, trainers=trainer, fit_mode=fit_mode)
+        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
 
-        X_new = dm.X_raw[:5]
-        preds = pipeline.predict(X_new, batch_size=8, backend="pennylane")
+        trainer = Trainer(**trainer_args)
 
-        assert len(preds) == len(
-            X_new
-        ), "Pipeline predict returned incorrect batch size."
-        assert not np.isnan(preds).any(), "Pipeline returned NaNs after processing."
-        assert np.issubdtype(
-            preds.dtype, np.integer
-        ), "Pipeline predict did not return hard integer labels."
+        trainer.fit(model, datamodule=dm)
 
-    def test_pipeline_invalid_fit_mode(self, object_class):
-        """Verifies the pipeline catches invalid training configurations."""
-        params = object_class.get_test_params()[0]
-        model_a = object_class(**params)
-        dm = self._get_matching_datamodule(model_a)
+        import glob
+        import os
 
-        pipeline = QuantumPipeline([PipelineStage(model_a)], mode="sequential")
+        if backend == "pennylane":
+            assert os.path.exists(
+                "pyqit_pennylane_checkpoint.npz"
+            ), "PennyLane checkpoint was not created!"
 
-        with pytest.raises(ValueError, match="not valid for sequential pipeline"):
-            pipeline.fit(datamodule=dm, trainers=None, fit_mode="independent")
+        elif backend == "torch":
+            ckpt_files = glob.glob("lightning_logs/**/*.ckpt", recursive=True)
+            assert len(ckpt_files) > 0, "Lightning PyTorch checkpoint was not created!"

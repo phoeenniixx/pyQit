@@ -5,10 +5,26 @@ import numpy as np
 import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
+from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 from pyqit.core._loss_mapping import get_loss_fn
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
+
+HAS_RICH = _check_soft_dependencies("rich", severity="none")
+if HAS_RICH:
+    from rich import box
+    from rich.console import Console
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        TaskProgressColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+    from rich.table import Table
+
+    console = Console()
 
 
 class TrainingHistory:
@@ -67,9 +83,12 @@ class Trainer:
         optimizer: str = "adam",
         loss_fn: str | Callable = "mse",
         backend_type: str = "auto",
-        verbose: int = 5,
+        verbose: int = 2,
         seed: int | None = 42,
-        num_workers: int = 0,
+        num_workers: int = 2,
+        enable_checkpointing: bool = True,
+        logger: bool | object = True,
+        lightning_accelerator: str = "cpu",
     ):
         self.max_epochs = max_epochs
         self.lr = learning_rate
@@ -80,6 +99,9 @@ class Trainer:
         self.verbose = verbose
         self.seed = seed
         self.num_workers = num_workers
+        self.enable_checkpointing = enable_checkpointing
+        self.logger = logger
+        self.lightning_accelerator = lightning_accelerator
 
     def fit(
         self,
@@ -87,6 +109,9 @@ class Trainer:
         datamodule: DataModule,
     ) -> TrainingHistory:
         backend = self._resolve_backend(model)
+        model_encoder_class = None
+        if hasattr(model, "_embedding_obj"):
+            model_encoder_class = type(model._embedding_obj)
 
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
@@ -94,12 +119,102 @@ class Trainer:
             backend=backend,
             batch_size=self.batch_size,
             n_qubits=n_qubits,
+            encoder=model_encoder_class,
         )
+
+        if self.verbose >= 2:
+            self._print_model_summary(model, datamodule, backend)
+        elif self.verbose == 1:
+            if HAS_RICH:
+                console.print(
+                    f"[bold cyan][Trainer][/bold cyan] \
+                        Starting [green]{backend}[/green] backend |\
+                              {self.max_epochs} epochs | lr={self.lr}\n"
+                )
+            else:
+                print(
+                    f"[Trainer] Starting {backend} backend | {self.max_epochs} epochs\
+                          | lr={self.lr}"
+                )
 
         if backend == "torch":
             return self._fit_torch(model, datamodule)
         else:
             return self._fit_pennylane(model, datamodule)
+
+    def _print_model_summary(self, model: BaseModel, dm: DataModule, backend: str):
+        """Displays a professional table of the model architecture and data splits."""
+        if not HAS_RICH:
+            print(
+                f"\n[Trainer] Starting {backend} backend | {self.max_epochs} epochs \
+                    | lr={self.lr}"
+            )
+            return
+
+        table = Table(show_header=True, header_style="bold cyan", box=None)
+        table.add_column("Parameter", style="dim", width=20)
+        table.add_column("Value", style="bold")
+
+        table.add_row("Model Name", type(model).__name__)
+        table.add_row("Backend", backend.capitalize())
+        table.add_row("Qubits", str(getattr(model, "n_qubits", "N/A")))
+        table.add_row(
+            "Ansatz",
+            type(getattr(model, "ansatz_obj", None)).__name__
+            if hasattr(model, "ansatz_obj")
+            else "N/A",
+        )
+        table.add_row(
+            "Encoder",
+            type(getattr(model, "_embedding_obj", None)).__name__
+            if hasattr(model, "_embedding_obj")
+            else "N/A",
+        )
+        table.add_row("Optimizer", self.optimizer.upper())
+        table.add_row("Learning Rate", str(self.lr))
+
+        train_samples = len(dm.X_train) if dm.X_train is not None else 0
+        val_samples = len(dm.X_val) if dm.X_val is not None else 0
+        table.add_row("Train / Val Samples", f"{train_samples} / {val_samples}")
+
+        console.print(table)
+        console.print()
+
+    def _get_progress_context(self):
+        if HAS_RICH and self.verbose:
+            return Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(complete_style="cyan", finished_style="bold green"),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                console=console,
+            )
+        else:
+            import contextlib
+
+            return contextlib.nullcontext()
+
+    def _native_progress(self, epoch, train_loss, val_loss, elapsed):
+        import sys
+
+        val_str = f" | val_loss={val_loss:.4f}" if not np.isnan(val_loss) else ""
+
+        percent = (epoch + 1) / self.max_epochs
+        bar_len = 30
+        filled = int(round(bar_len * percent))
+
+        bar = "=" * max(0, filled - 1) + ">" * min(1, filled) + "." * (bar_len - filled)
+
+        msg = (
+            f"\rEpoch {epoch+1:>{len(str(self.max_epochs))}}/{self.max_epochs} "
+            f"[{bar}] {percent:.0%} | loss={train_loss:.4f}{val_str} [{elapsed:.1f}s]  "
+        )
+
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+        if epoch + 1 == self.max_epochs:
+            sys.stdout.write("\n")
 
     def _resolve_backend(self, model: BaseModel) -> str:
         if self.backend_type != "auto":
@@ -128,57 +243,106 @@ class Trainer:
         loss_fn = get_loss_fn(self.loss_fn, backend="pennylane")
         train_loader = datamodule.train_loader(shuffle=True)
         val_loader = datamodule.val_loader(shuffle=False)
+        if self.logger and self.logger is not True:
+            import warnings
 
-        if self.verbose:
-            print(
-                f"[Trainer] PennyLane backend | {self.max_epochs} epochs | lr={self.lr}"
+            warnings.warn(
+                f"You passed a custom logger ({type(self.logger).__name__}) "
+                "to the Trainer, "
+                "but the 'pennylane' backend does not support Lightning loggers. "
+                "Metrics will be stored in the TrainingHistory object instead.",
+                UserWarning,
+                stacklevel=2,
             )
 
-        for epoch in range(self.max_epochs):
-            t0 = time.time()
-            batch_losses = []
+        best_native_val_loss = float("inf")
 
-            for X_batch, y_batch in train_loader:
-                X_b = pnp.array(X_batch, requires_grad=False)
-                y_b = pnp.array(y_batch, requires_grad=False)
+        with self._get_progress_context() as progress:
+            if progress:
+                task_id = progress.add_task("[cyan]Training...", total=self.max_epochs)
 
-                def batch_cost(*weight_tensors):
-                    model.update_weights(dict(zip(weight_keys, weight_tensors)))
-                    preds = model.forward(X_b, *weight_tensors)
-                    if preds.ndim == 0:
-                        preds = pnp.expand_dims(preds, axis=0)
-                    return loss_fn(preds, y_b)
+            for epoch in range(self.max_epochs):
+                t0 = time.time()
+                batch_losses = []
 
-                grads = qml.grad(batch_cost)(*current_weights)
-                batch_loss = float(batch_cost(*current_weights))
-                batch_losses.append(batch_loss)
+                for X_batch, y_batch in train_loader:
+                    X_b = pnp.array(X_batch, requires_grad=False)
+                    y_b = pnp.array(y_batch, requires_grad=False)
 
-                current_weights = self._apply_gradients_pl(
-                    current_weights, grads, epoch
-                )
-            model.update_weights(dict(zip(weight_keys, current_weights)))
+                    def batch_cost(*weight_tensors):
+                        model.update_weights(dict(zip(weight_keys, weight_tensors)))
+                        preds = model.forward(X_b, *weight_tensors)
+                        if preds.ndim == 0:
+                            preds = pnp.expand_dims(preds, axis=0)
+                        return loss_fn(preds, y_b)
 
-            train_loss = float(np.mean(batch_losses))
-            train_acc = self._accuracy_pl(model, datamodule.X_train, datamodule.y_train)
+                    grads = qml.grad(batch_cost)(*current_weights)
+                    batch_loss = float(batch_cost(*current_weights))
+                    batch_losses.append(batch_loss)
 
-            val_loss, val_acc = float("nan"), float("nan")
-            if val_loader is not None:
-                val_loss = self._eval_loss_pl(
-                    model, datamodule.X_val, datamodule.y_val, loss_fn
-                )
-                val_acc = self._accuracy_pl(model, datamodule.X_val, datamodule.y_val)
+                    current_weights = self._apply_gradients_pl(
+                        current_weights, grads, epoch
+                    )
 
-            elapsed = time.time() - t0
-            history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
+                model.update_weights(dict(zip(weight_keys, current_weights)))
 
-            if self.verbose and (
-                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
-            ):
-                self._print_epoch(
-                    epoch, train_loss, val_loss, train_acc, val_acc, elapsed
+                train_loss = float(np.mean(batch_losses))
+                train_acc = self._accuracy_pl(
+                    model, datamodule.X_train, datamodule.y_train
                 )
 
-        print("[Trainer] Training complete.")
+                val_loss, val_acc = float("nan"), float("nan")
+                if val_loader is not None:
+                    val_loss = self._eval_loss_pl(
+                        model, datamodule.X_val, datamodule.y_val, loss_fn
+                    )
+                    val_acc = self._accuracy_pl(
+                        model, datamodule.X_val, datamodule.y_val
+                    )
+
+                elapsed = time.time() - t0
+                history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
+
+                if self.enable_checkpointing and not np.isnan(val_loss):
+                    if val_loss < best_native_val_loss:
+                        best_native_val_loss = val_loss
+
+                        checkpoint_path = "pyqit_pennylane_checkpoint.npz"
+                        numpy_weights = {
+                            k: np.array(v) for k, v in zip(weight_keys, current_weights)
+                        }
+                        np.savez(checkpoint_path, **numpy_weights)
+
+                        if self.verbose >= 1 and not HAS_RICH:
+                            print(
+                                "[Checkpoint] Saved new best model "
+                                f"(val_loss: {val_loss:.4f})"
+                            )
+
+                if self.verbose >= 0:
+                    if progress:
+                        val_str = (
+                            f"| Val Loss: {val_loss:.4f}"
+                            if not np.isnan(val_loss)
+                            else ""
+                        )
+                        progress.update(
+                            task_id,
+                            completed=epoch + 1,
+                            description=f"[cyan]Epoch {epoch+1}/{self.max_epochs}\
+                                  | Loss: {train_loss:.4f} {val_str}",
+                        )
+                        if epoch + 1 == self.max_epochs:
+                            progress.refresh()
+                            time.sleep(0.05)
+                    else:
+                        self._native_progress(epoch, train_loss, val_loss, elapsed)
+
+        if self.verbose >= 1:
+            if HAS_RICH:
+                console.print("[bold green][Trainer] Training complete.[/bold green]")
+            else:
+                print("[Trainer] Training complete.")
         return history
 
     def _apply_gradients_pl(
@@ -236,90 +400,54 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        import time
-
-        import torch
+        if _check_soft_dependencies("lightning", severity="none"):
+            from lightning.pytorch import Trainer as LightningTrainer
+            from lightning.pytorch.callbacks import ModelCheckpoint
+        else:
+            raise ImportError(
+                "Lightning is not installed. "
+                "Please install it to use the PyTorch backend."
+            )
+        torch = _safe_import("torch")
 
         from pyqit.core._loss_mapping import get_loss_fn
+        from pyqit.core.adapters.lightning import (
+            _LightningDataAdapter,
+            _LightningModelAdapter,
+        )
+        from pyqit.core.callbacks.history import HistoryCallback
 
-        history = TrainingHistory()
-        weight_keys = list(model.weights.keys())
-        torch_weights = {}
-
-        for k in weight_keys:
-            w = model.weights[k]
-            if not isinstance(w, torch.Tensor):
-                w = torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
-            else:
-                w = w.detach().requires_grad_(True)
-            torch_weights[k] = w
-
+        torch_weights = {
+            k: (
+                torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
+                if not isinstance(w, torch.Tensor)
+                else w.detach().requires_grad_(True)
+            )
+            for k, w in model.weights.items()
+        }
         model.update_weights(torch_weights)
 
-        parameters = list(model.weights.values())
-        if self.optimizer == "sgd":
-            optimizer = torch.optim.SGD(parameters, lr=self.lr)
-        else:
-            optimizer = torch.optim.Adam(parameters, lr=self.lr)
+        loss_func = get_loss_fn(self.loss_fn, backend="torch")
+        pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)
+        pl_data = _LightningDataAdapter(datamodule)
 
-        loss_fn = get_loss_fn(self.loss_fn, backend="torch")
-        train_loader = datamodule.train_loader(shuffle=True)
-        val_loader = datamodule.val_loader(shuffle=False)
+        history = TrainingHistory()
+        callbacks = [HistoryCallback(history)]
+        if self.enable_checkpointing:
+            callbacks.append(ModelCheckpoint(save_weights_only=True))
 
-        if self.verbose:
-            print(f"[Trainer] Torch backend | {self.max_epochs} epochs | lr={self.lr}")
+        pl_trainer = LightningTrainer(
+            max_epochs=self.max_epochs,
+            enable_progress_bar=(self.verbose >= 0),
+            callbacks=callbacks,
+            logger=self.logger,
+            enable_model_summary=(self.verbose >= 2),
+            enable_checkpointing=self.enable_checkpointing,
+            accelerator=self.lightning_accelerator,
+        )
 
-        for epoch in range(self.max_epochs):
-            t0 = time.time()
-            batch_losses = []
+        pl_trainer.fit(pl_model, datamodule=pl_data)
 
-            for X_batch, y_batch in train_loader:
-                optimizer.zero_grad()
-
-                preds = model.forward(X_batch)
-
-                if (
-                    self.loss_fn == "cross_entropy"
-                    and preds.ndim > 1
-                    and preds.shape[1] > 1
-                ):
-                    y_batch = y_batch.long()
-                else:
-                    y_batch = y_batch.to(preds.dtype)
-
-                loss = loss_fn(preds, y_batch.to(dtype=preds.dtype))
-
-                loss.backward()
-
-                optimizer.step()
-
-                batch_losses.append(loss.item())
-
-            train_loss = float(np.mean(batch_losses))
-            train_acc = self._accuracy_torch(
-                model, datamodule.X_train, datamodule.y_train
-            )
-
-            val_loss, val_acc = float("nan"), float("nan")
-            if val_loader is not None:
-                val_loss = self._eval_loss_torch(
-                    model, datamodule.X_val, datamodule.y_val, loss_fn
-                )
-                val_acc = self._accuracy_torch(
-                    model, datamodule.X_val, datamodule.y_val
-                )
-
-            elapsed = time.time() - t0
-            history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
-
-            if self.verbose and (
-                epoch % self.verbose == 0 or epoch == self.max_epochs - 1
-            ):
-                self._print_epoch(
-                    epoch, train_loss, val_loss, train_acc, val_acc, elapsed
-                )
-
-        print("[Trainer] Training complete.")
         return history
 
     def _accuracy_torch(self, model, X, y) -> float:
