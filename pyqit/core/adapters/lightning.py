@@ -63,14 +63,41 @@ class _LightningModelAdapter(LightningModule):
 
 
 class _LightningDataAdapter(LightningDataModule):
-    def __init__(self, pyqit_dm):
+    def __init__(
+        self,
+        pyqit_dm,
+        num_workers: int = 0,
+        train_loader_kwargs: dict | None = None,
+        eval_loader_kwargs: dict | None = None,
+    ):
         super().__init__()
         self.dm = pyqit_dm
 
+    def _build_loader(self, X, y):
+        from torch.utils.data import DataLoader, TensorDataset
+
+        if X is None or y is None:
+            return None
+
+        dataset = TensorDataset(
+            torch.as_tensor(X, dtype=torch.float32),
+            torch.as_tensor(y, dtype=torch.float32),
+        )
+        return DataLoader(
+            dataset,
+            batch_size=self.dm.batch_size,
+            num_workers=self.dm.num_workers,
+            shuffle=self.dm.shuffle,
+            drop_last=self.dm.drop_last,
+        )
+
     def train_dataloader(self):
-        return self.dm.train_loader(shuffle=True)
+        return self._build_loader(self.dm.X_train, self.dm.y_train)
 
     def val_dataloader(self):
         if self.dm.X_val is not None:
-            return self.dm.val_loader(shuffle=False)
+            return self._build_loader(self.dm.X_val, self.dm.y_val)
         return None
+
+    def test_dataloader(self):
+        return self._build_loader(self.dm.X_test, self.dm.y_test)

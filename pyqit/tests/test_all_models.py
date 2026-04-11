@@ -23,7 +23,12 @@ class TestAllModels(BaseFixtureGenerator):
     object_type_filter = "model"
 
     def _get_matching_datamodule(
-        self, model_instance, n_samples=16, batch_size=8, split=(0.6, 0.2, 0.2)
+        self,
+        model_instance,
+        n_samples=16,
+        batch_size=8,
+        split=(0.6, 0.2, 0.2),
+        backend="pennylane",
     ):
         """Helper to generate a dm that perfectly matches the model's architecture."""
         n_features = getattr(model_instance, "n_qubits", 4)
@@ -34,7 +39,11 @@ class TestAllModels(BaseFixtureGenerator):
         )
 
         return DataModule(
-            X=scenario["X"], y=scenario["y"], batch_size=batch_size, split=split
+            X=scenario["X"],
+            y=scenario["y"],
+            batch_size=batch_size,
+            split=split,
+            backend=backend,
         )
 
     @pytest.mark.parametrize("backend", ["pennylane", "torch"])
@@ -57,7 +66,9 @@ class TestAllModels(BaseFixtureGenerator):
         }
         trainer_args.update(trainer_kwargs)
 
-        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
+        dm = self._get_matching_datamodule(
+            model, n_samples=16, batch_size=8, backend=backend
+        )
         trainer = Trainer(**trainer_args)
 
         weight_keys = list(model.weights.keys())
@@ -104,7 +115,9 @@ class TestAllModels(BaseFixtureGenerator):
         }
         trainer_args.update(trainer_kwargs)
 
-        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
+        dm = self._get_matching_datamodule(
+            model, n_samples=16, batch_size=8, backend=backend
+        )
 
         trainer = Trainer(**trainer_args)
 

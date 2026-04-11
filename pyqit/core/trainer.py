@@ -116,7 +116,6 @@ class Trainer:
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
             stage="fit",
-            backend=backend,
             batch_size=self.batch_size,
             n_qubits=n_qubits,
             encoder=model_encoder_class,
@@ -234,7 +233,9 @@ class Trainer:
         datamodule: DataModule,
     ) -> TrainingHistory:
         history = TrainingHistory()
-
+        self._adam_m = None
+        self._adam_v = None
+        self._adam_t = 0
         weight_keys = list(model.weights.keys())
         current_weights = [
             pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
@@ -257,6 +258,13 @@ class Trainer:
 
         best_native_val_loss = float("inf")
 
+        def batch_cost(X_b, y_b, *weight_tensors):
+            model.update_weights(dict(zip(weight_keys, weight_tensors)))
+            preds = model.forward(X_b, *weight_tensors)
+            if preds.ndim == 0:
+                preds = pnp.expand_dims(preds, axis=0)
+            return loss_fn(preds, y_b)
+
         with self._get_progress_context() as progress:
             if progress:
                 task_id = progress.add_task("[cyan]Training...", total=self.max_epochs)
@@ -269,15 +277,8 @@ class Trainer:
                     X_b = pnp.array(X_batch, requires_grad=False)
                     y_b = pnp.array(y_batch, requires_grad=False)
 
-                    def batch_cost(*weight_tensors):
-                        model.update_weights(dict(zip(weight_keys, weight_tensors)))
-                        preds = model.forward(X_b, *weight_tensors)
-                        if preds.ndim == 0:
-                            preds = pnp.expand_dims(preds, axis=0)
-                        return loss_fn(preds, y_b)
-
-                    grads = qml.grad(batch_cost)(*current_weights)
-                    batch_loss = float(batch_cost(*current_weights))
+                    grads = qml.grad(batch_cost)(X_b, y_b, *current_weights)
+                    batch_loss = float(batch_cost(X_b, y_b, *current_weights))
                     batch_losses.append(batch_loss)
 
                     current_weights = self._apply_gradients_pl(
@@ -286,19 +287,15 @@ class Trainer:
 
                 model.update_weights(dict(zip(weight_keys, current_weights)))
 
+                train_loader_eval = datamodule.train_loader(shuffle=False)
+
                 train_loss = float(np.mean(batch_losses))
-                train_acc = self._accuracy_pl(
-                    model, datamodule.X_train, datamodule.y_train
-                )
+                train_acc = self._accuracy_pl(model, train_loader_eval)
 
                 val_loss, val_acc = float("nan"), float("nan")
                 if val_loader is not None:
-                    val_loss = self._eval_loss_pl(
-                        model, datamodule.X_val, datamodule.y_val, loss_fn
-                    )
-                    val_acc = self._accuracy_pl(
-                        model, datamodule.X_val, datamodule.y_val
-                    )
+                    val_loss = self._eval_loss_pl(model, val_loader, loss_fn)
+                    val_acc = self._accuracy_pl(model, val_loader)
 
                 elapsed = time.time() - t0
                 history.record(epoch, train_loss, val_loss, train_acc, val_acc, elapsed)
@@ -357,10 +354,9 @@ class Trainer:
                 for w, g in zip(weights, grads)
             ]
 
-        if not hasattr(self, "_adam_m"):
+        if self._adam_m is None:
             self._adam_m = [np.zeros_like(w) for w in weights]
             self._adam_v = [np.zeros_like(w) for w in weights]
-            self._adam_t = 0
 
         b1, b2, eps = 0.9, 0.999, 1e-8
         self._adam_t += 1
@@ -377,23 +373,38 @@ class Trainer:
 
         return new_weights
 
-    def _accuracy_pl(self, model, X, y) -> float:
-        if X is None:
+    def _accuracy_pl(self, model, dataloader) -> float:
+        if dataloader is None:
             return float("nan")
-        preds = np.array([model.forward(pnp.atleast_1d(x)) for x in X])
 
-        if preds.ndim > 1:
-            preds = preds.argmax(axis=1)
-        else:
-            preds = (preds >= 0.5).astype(int)
+        correct, total = 0, 0
+        for X_b, y_b in dataloader:
+            preds = pnp.array(model.forward(X_b))
 
-        return float(np.mean(preds == y.astype(int)))
+            if preds.ndim > 1 and preds.shape[1] > 1:
+                preds_labels = preds.argmax(axis=1)
+            else:
+                preds_labels = (preds >= 0.5).astype(int)
+                preds_labels = preds_labels.flatten()
 
-    def _eval_loss_pl(self, model, X, y, loss_fn) -> float:
-        if X is None:
+            y_tens = y_b.astype(int).flatten()
+            correct += np.sum(preds_labels == y_tens)
+            total += len(y_tens)
+
+        return float(correct / total) if total > 0 else float("nan")
+
+    def _eval_loss_pl(self, model, dataloader, loss_fn) -> float:
+        if dataloader is None:
             return float("nan")
-        preds = pnp.array([model.forward(pnp.atleast_1d(x)) for x in X])
-        return float(loss_fn(preds, pnp.array(y, requires_grad=False)))
+
+        losses = []
+        for X_b, y_b in dataloader:
+            preds = model.forward(X_b)
+            y_target = pnp.array(y_b, requires_grad=False)
+
+            losses.append(float(loss_fn(preds, y_target)))
+
+        return float(np.mean(losses))
 
     def _fit_torch(
         self,
@@ -412,7 +423,6 @@ class Trainer:
 
         from pyqit.core._loss_mapping import get_loss_fn
         from pyqit.core.adapters.lightning import (
-            _LightningDataAdapter,
             _LightningModelAdapter,
         )
         from pyqit.core.callbacks.history import HistoryCallback
@@ -429,7 +439,7 @@ class Trainer:
 
         loss_func = get_loss_fn(self.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)
-        pl_data = _LightningDataAdapter(datamodule)
+        pl_data = datamodule.to_lightning()
 
         history = TrainingHistory()
         callbacks = [HistoryCallback(history)]
@@ -450,35 +460,48 @@ class Trainer:
 
         return history
 
-    def _accuracy_torch(self, model, X, y) -> float:
+    def _accuracy_torch(self, model, dataloader) -> float:
         import torch
 
-        if X is None:
+        if dataloader is None:
             return float("nan")
 
+        correct, total = 0, 0
         with torch.no_grad():
-            X_tens = torch.as_tensor(X)
-            preds = model.forward(X_tens)
-            y_tens = torch.as_tensor(y).squeeze()
+            for X_b, y_b in dataloader:
+                preds = model.forward(torch.as_tensor(X_b))
+                y_tens = torch.as_tensor(y_b).squeeze()
 
-            if preds.ndim > 1 and preds.shape[1] > 1:
-                preds_labels = preds.argmax(dim=1)
-            else:
-                preds_labels = (preds >= 0.5).to(torch.int)
+                if preds.ndim > 1 and preds.shape[1] > 1:
+                    preds_labels = preds.argmax(dim=1)
+                else:
+                    preds_labels = (preds >= 0.5).to(torch.int)
 
-            return float((preds_labels == y_tens).float().mean().item())
+                correct += (preds_labels == y_tens).sum().item()
+                total += len(y_tens)
 
-    def _eval_loss_torch(self, model, X, y, loss_fn) -> float:
+        return float(correct / total) if total > 0 else float("nan")
+
+    def _eval_loss_torch(self, model, dataloader, loss_fn) -> float:
         import torch
 
-        if X is None:
+        if dataloader is None:
             return float("nan")
 
+        losses = []
         with torch.no_grad():
-            preds = torch.stack([model.forward(torch.as_tensor(x)) for x in X])
-            loss = loss_fn(preds, torch.as_tensor(y).to(dtype=preds.dtype))
+            for X_b, y_b in dataloader:
+                preds = model.forward(torch.as_tensor(X_b))
+                y_tensor = torch.as_tensor(y_b)
 
-        return float(loss.item())
+                if preds.ndim == 2 and preds.shape[1] > 1 and y_tensor.ndim == 1:
+                    y_target = y_tensor.to(torch.long)
+                else:
+                    y_target = y_tensor.to(dtype=preds.dtype)
+
+                losses.append(float(loss_fn(preds, y_target).item()))
+
+        return float(np.mean(losses))
 
     def predict(
         self,
@@ -490,7 +513,6 @@ class Trainer:
             n_qubits = getattr(model, "n_qubits", None)
             datamodule.setup(
                 stage="predict",
-                backend=self.backend_type,
                 batch_size=self.batch_size,
                 n_qubits=n_qubits,
             )

@@ -149,7 +149,6 @@ class QuantumPipeline(BaseMetaObject):
         )
 
         datamodule.setup(
-            backend=getattr(first_model, "backend", "pennylane"),
             batch_size=target_batch_size,
             n_qubits=n_qubits,
             encoder=encoder_class,
@@ -187,8 +186,9 @@ class QuantumPipeline(BaseMetaObject):
                 )
             current_dm = self._transform_datamodule(current_dm, stage)
 
-        last_name, last_stage = self.steps[-1]
-        trainer = self._get_trainer(trainers, -1, last_name)
+        last_idx = len(self.steps) - 1
+        last_name, last_stage = self.steps[last_idx]
+        trainer = self._get_trainer(trainers, last_idx, last_name)
         if not trainer:
             raise ValueError(f"Missing Trainer for final stage '{last_name}'")
 
@@ -318,7 +318,6 @@ class QuantumPipeline(BaseMetaObject):
 
         dm.setup(
             stage="predict",
-            backend=backend,
             batch_size=batch_size,
             n_qubits=n_qubits,
             encoder=encoder_class,

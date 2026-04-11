@@ -16,8 +16,8 @@ class HistoryCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         metrics = trainer.callback_metrics
 
-        t_loss = metrics.get("train_loss")
-        v_loss = metrics.get("val_loss")
+        t_loss = metrics.get("train_loss", float("nan"))
+        v_loss = metrics.get("val_loss", float("nan"))
 
         train_loss = t_loss.item() if t_loss is not None else float("nan")
         val_loss = v_loss.item() if v_loss is not None else float("nan")

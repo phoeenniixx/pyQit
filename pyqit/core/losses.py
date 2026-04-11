@@ -19,5 +19,13 @@ def cross_entropy_loss(preds, targets):
         return -pnp.mean(log_p)
 
     n = len(targets)
+    if pnp.max(targets) >= probs.shape[1] or pnp.min(targets) < 0:
+        raise ValueError(
+            f"Target mismatch: Model output {probs.shape[1]} classes, "
+            f"but targets contain class index {pnp.max(targets)}. "
+            "Ensure the model's `n_classes` matches the number of "
+            "unique classes in your dataset."
+        )
+
     log_p = pnp.log(probs[pnp.arange(n), targets.astype(int)])
     return -pnp.mean(log_p)

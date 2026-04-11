@@ -201,12 +201,15 @@ class DataModule:
         y,
         name: str = "dataset",
         normalize: str | None = None,
+        backend: str = "pennylane",
         split: tuple = (0.70, 0.15, 0.15),
         stratify: bool = False,
         seed: int | None = 42,
         batch_size: int = 32,
         num_workers: int = 0,
         transform: Callable | list | None = None,
+        shuffle: bool = True,
+        drop_last: bool = False,
     ):
         if normalize is not None and normalize not in self._VALID_NORMALIZE:
             raise ValueError(
@@ -240,8 +243,16 @@ class DataModule:
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.transform = transform
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.backend = backend
+        if self.backend not in ("pennylane", "torch"):
+            raise ValueError(
+                f"Unsupported backend {self.backend!r}. "
+                "Valid options: 'pennylane', 'torch', or None."
+            )
 
-        self._backend = "pennylane"
+        self._backend = self.backend
         self._normalizer = None
         self._numpy_transform = None
         self._torch_transform = None
@@ -285,10 +296,20 @@ class DataModule:
         name = kw.pop("name", Path(path).stem)
         return cls.from_dataframe(df, label_col=label_col, name=name, **kw)
 
+    def to_lightning(self):
+        """Converts itself to a Lightning adapter if the backend requires it."""
+        if self.backend != "torch":
+            raise ValueError(
+                f"Cannot generate a Lightning adapter for {self.backend}" " backend."
+            )
+
+        from pyqit.core.adapters.lightning import _LightningDataAdapter
+
+        return _LightningDataAdapter(self)
+
     def setup(
         self,
         stage: str | None = None,
-        backend: str | None = None,
         batch_size: int | None = None,
         n_qubits: int | None = None,
         encoder: type | None = None,
@@ -297,7 +318,6 @@ class DataModule:
         if self._is_setup and not force:
             return self
 
-        self._backend = backend
         self.batch_size = batch_size
 
         self.encoder = encoder
@@ -345,7 +365,6 @@ class DataModule:
             if self._normalizer is not None:
                 X_te = self._normalizer.transform(X_te)
 
-        prescale = self.encoder.PRESCALE if self.encoder is not None else None
         if prescale is not None:
             if nq is None:
                 raise RuntimeError("Prescaling requires n_qubits.")
@@ -579,13 +598,21 @@ class DataModule:
         )
 
     def clone_empty(self) -> "DataModule":
+        import copy
+
         new_dm = object.__new__(DataModule)
 
         new_dm.__dict__.update(self.__dict__)
 
+        new_dm._normalizer = copy.deepcopy(self._normalizer)
+        new_dm.split = self.split
+        new_dm.transform = self.transform
+
         new_dm.X_raw = None
         new_dm.y_raw = None
-
+        new_dm._X_train = new_dm._y_train = None
+        new_dm._X_val = new_dm._y_val = None
+        new_dm._X_test = new_dm._y_test = None
         new_dm._is_setup = False
         return new_dm
 
