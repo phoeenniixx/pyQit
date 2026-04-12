@@ -199,8 +199,17 @@ class QuantumPipeline(BaseMetaObject):
             if X is None:
                 return None
             inp = X[:, stage.input_slice] if stage.input_slice else X
+            is_torch_backend = getattr(dm, "_backend", "") == "torch"
 
-            out = stage.model.forward(inp)
+            if is_torch_backend or _is_torch(inp):
+                import torch
+
+                with torch.no_grad():
+                    out = stage.model.forward(inp)
+                    if isinstance(out, torch.Tensor):
+                        out = out.detach()
+            else:
+                out = stage.model.forward(inp)
             out = _ensure_col(out)
 
             return _cat(inp, out) if stage.passthrough else out
@@ -304,8 +313,8 @@ class QuantumPipeline(BaseMetaObject):
         self,
         X,
         batch_size: int = 32,
-        backend: str = "pennylane",
         return_format: str = "auto",
+        trainer_kwargs: dict = {},
     ):
         dummy_y = np.zeros(len(X))
         dm = DataModule(X=X, y=dummy_y, batch_size=batch_size, split=(0.0, 0.0, 1.0))
@@ -323,7 +332,7 @@ class QuantumPipeline(BaseMetaObject):
             encoder=encoder_class,
         )
 
-        temp_trainer = Trainer(backend_type=backend, batch_size=batch_size)
+        temp_trainer = Trainer(batch_size=batch_size, **trainer_kwargs)
 
         return temp_trainer.predict(
             model=self, datamodule=dm, return_format=return_format

@@ -2,10 +2,9 @@ import numpy as np
 import pennylane.numpy as pnp
 import pytest
 
-from pyqit.core.pipeline import PipelineStage, QuantumPipeline
+import pyqit
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
-from pyqit.models.base.base import BaseModel
 from pyqit.tests._fixture_generators import BaseFixtureGenerator
 from pyqit.tests.scenarios import make_scenario
 
@@ -28,7 +27,6 @@ class TestAllModels(BaseFixtureGenerator):
         n_samples=16,
         batch_size=8,
         split=(0.6, 0.2, 0.2),
-        backend="pennylane",
     ):
         """Helper to generate a dm that perfectly matches the model's architecture."""
         n_features = getattr(model_instance, "n_qubits", 4)
@@ -43,7 +41,6 @@ class TestAllModels(BaseFixtureGenerator):
             y=scenario["y"],
             batch_size=batch_size,
             split=split,
-            backend=backend,
         )
 
     @pytest.mark.parametrize("backend", ["pennylane", "torch"])
@@ -56,9 +53,10 @@ class TestAllModels(BaseFixtureGenerator):
             pytest.importorskip("torch")
             pytest.importorskip("lightning")
 
+        pyqit.set_backend(backend)
+
         model = object_instance.clone()
         trainer_args = {
-            "backend_type": backend,
             "max_epochs": 1,
             "learning_rate": 0.1,
             "enable_checkpointing": False,
@@ -66,9 +64,7 @@ class TestAllModels(BaseFixtureGenerator):
         }
         trainer_args.update(trainer_kwargs)
 
-        dm = self._get_matching_datamodule(
-            model, n_samples=16, batch_size=8, backend=backend
-        )
+        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
         trainer = Trainer(**trainer_args)
 
         weight_keys = list(model.weights.keys())
@@ -102,12 +98,13 @@ class TestAllModels(BaseFixtureGenerator):
             pytest.importorskip("torch")
             pytest.importorskip("lightning")
 
+        pyqit.set_backend(backend)
+
         monkeypatch.chdir(tmp_path)
 
         model = object_instance.clone()
 
         trainer_args = {
-            "backend_type": backend,
             "max_epochs": 1,
             "learning_rate": 0.1,
             "enable_checkpointing": True,
@@ -115,9 +112,7 @@ class TestAllModels(BaseFixtureGenerator):
         }
         trainer_args.update(trainer_kwargs)
 
-        dm = self._get_matching_datamodule(
-            model, n_samples=16, batch_size=8, backend=backend
-        )
+        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
 
         trainer = Trainer(**trainer_args)
 

@@ -4,6 +4,7 @@ import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.utils.dependencies import _check_soft_dependencies
 
+from pyqit.core.config import get_backend
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_expval_z
 from pyqit.models.base.base import BaseModel
@@ -18,7 +19,6 @@ class BaseQuantumModel(BaseModel):
         measure_wires=None,
         device="default.qubit",
         shots=None,
-        backend="pennylane",
     ):
         self.ansatz_obj = ansatz_obj
         self.embedding_obj = embedding_obj
@@ -26,7 +26,7 @@ class BaseQuantumModel(BaseModel):
         self.measure_fn = measure_fn
         self.device = device
         self.shots = shots
-        self.backend = backend
+        self.backend = get_backend()
 
         self._device_obj = qml.device(
             self.device, wires=ansatz_obj.n_qubits, shots=self.shots

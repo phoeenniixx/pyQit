@@ -8,6 +8,7 @@ from skbase.base import BaseMetaObject
 from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 from pyqit.core._loss_mapping import get_loss_fn
+from pyqit.core.config import get_backend
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
 
@@ -82,7 +83,6 @@ class Trainer:
         batch_size: int = 32,
         optimizer: str = "adam",
         loss_fn: str | Callable = "mse",
-        backend_type: str = "auto",
         verbose: int = 2,
         seed: int | None = 42,
         num_workers: int = 2,
@@ -95,7 +95,7 @@ class Trainer:
         self.batch_size = batch_size
         self.optimizer = optimizer.lower() if isinstance(optimizer, str) else optimizer
         self.loss_fn = loss_fn
-        self.backend_type = backend_type
+        self.backend = get_backend()
         self.verbose = verbose
         self.seed = seed
         self.num_workers = num_workers
@@ -108,7 +108,7 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
-        backend = self._resolve_backend(model)
+        backend = self.backend
         model_encoder_class = None
         if hasattr(model, "_embedding_obj"):
             model_encoder_class = type(model._embedding_obj)
@@ -215,18 +215,6 @@ class Trainer:
         if epoch + 1 == self.max_epochs:
             sys.stdout.write("\n")
 
-    def _resolve_backend(self, model: BaseModel) -> str:
-        if self.backend_type != "auto":
-            if self.backend_type not in ("pennylane", "torch"):
-                raise ValueError(
-                    f"backend_type must be 'pennylane', 'torch', or 'auto'. "
-                    f"Got {self.backend_type!r}."
-                )
-            return self.backend_type
-
-        model_type = getattr(model, "metadata", {}).get("model_type", "pure_qml")
-        return "torch" if model_type == "hybrid" else "pennylane"
-
     def _fit_pennylane(
         self,
         model: BaseModel,
@@ -265,6 +253,11 @@ class Trainer:
                 preds = pnp.expand_dims(preds, axis=0)
             return loss_fn(preds, y_b)
 
+        if self.optimizer == "adam":
+            opt = qml.AdamOptimizer(stepsize=self.lr)
+        else:
+            opt = qml.GradientDescentOptimizer(stepsize=self.lr)
+
         with self._get_progress_context() as progress:
             if progress:
                 task_id = progress.add_task("[cyan]Training...", total=self.max_epochs)
@@ -277,13 +270,14 @@ class Trainer:
                     X_b = pnp.array(X_batch, requires_grad=False)
                     y_b = pnp.array(y_batch, requires_grad=False)
 
-                    grads = qml.grad(batch_cost)(X_b, y_b, *current_weights)
-                    batch_loss = float(batch_cost(X_b, y_b, *current_weights))
-                    batch_losses.append(batch_loss)
-
-                    current_weights = self._apply_gradients_pl(
-                        current_weights, grads, epoch
+                    args_out, batch_loss = opt.step_and_cost(
+                        batch_cost,
+                        X_b,
+                        y_b,
+                        *current_weights,
                     )
+                    current_weights = list(args_out[2:])
+                    batch_losses.append(float(batch_loss))
 
                 model.update_weights(dict(zip(weight_keys, current_weights)))
 
@@ -341,37 +335,6 @@ class Trainer:
             else:
                 print("[Trainer] Training complete.")
         return history
-
-    def _apply_gradients_pl(
-        self,
-        weights: list,
-        grads: tuple,
-        epoch: int,
-    ) -> list:
-        if self.optimizer == "sgd":
-            return [
-                pnp.array(w - self.lr * g, requires_grad=True)
-                for w, g in zip(weights, grads)
-            ]
-
-        if self._adam_m is None:
-            self._adam_m = [np.zeros_like(w) for w in weights]
-            self._adam_v = [np.zeros_like(w) for w in weights]
-
-        b1, b2, eps = 0.9, 0.999, 1e-8
-        self._adam_t += 1
-        t = self._adam_t
-        new_weights = []
-
-        for i, (w, g) in enumerate(zip(weights, grads)):
-            self._adam_m[i] = b1 * self._adam_m[i] + (1 - b1) * g
-            self._adam_v[i] = b2 * self._adam_v[i] + (1 - b2) * g**2
-            m_hat = self._adam_m[i] / (1 - b1**t)
-            v_hat = self._adam_v[i] / (1 - b2**t)
-            w_new = w - self.lr * m_hat / (np.sqrt(v_hat) + eps)
-            new_weights.append(pnp.array(w_new, requires_grad=True))
-
-        return new_weights
 
     def _accuracy_pl(self, model, dataloader) -> float:
         if dataloader is None:
@@ -526,7 +489,7 @@ class Trainer:
 
         all_preds = []
 
-        if self.backend_type == "torch":
+        if self.backend == "torch":
             import torch
 
             context = torch.no_grad()
@@ -537,7 +500,7 @@ class Trainer:
 
         with context:
             for X_batch, _ in loader:
-                if self.backend_type == "pennylane":
+                if self.backend == "pennylane":
                     X_b = pnp.array(X_batch, requires_grad=False)
                 else:
                     X_b = X_batch
@@ -587,6 +550,6 @@ class Trainer:
 
     def __repr__(self) -> str:
         return (
-            f"Trainer(backend={self.backend_type!r}, "
+            f"Trainer(backend={self.backend!r}, "
             f"max_epochs={self.max_epochs}, lr={self.lr})"
         )

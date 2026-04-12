@@ -92,12 +92,12 @@ class _LightningDataAdapter(LightningDataModule):
         )
 
     def train_dataloader(self):
-        return self._build_loader(self.dm.X_train, self.dm.y_train)
+        return self._build_loader(self.dm._X_train, self.dm._y_train)
 
     def val_dataloader(self):
-        if self.dm.X_val is not None:
-            return self._build_loader(self.dm.X_val, self.dm.y_val)
+        if self.dm._X_val is not None:
+            return self._build_loader(self.dm._X_val, self.dm._y_val)
         return None
 
     def test_dataloader(self):
-        return self._build_loader(self.dm.X_test, self.dm.y_test)
+        return self._build_loader(self.dm._X_test, self.dm._y_test)

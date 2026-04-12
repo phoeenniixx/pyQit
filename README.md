@@ -14,19 +14,21 @@
 for some idea how it might look like:
 ```python
 # no torch
+pyqit.set_backend("pennylane")
 qml_model= QMLmodel(...) # may use their own ansatz?
 dm = DataModule(...)
-trainer = Trainer(backend_type="pennylane")
+trainer = Trainer(...)
 trainer.fit(qml_model, dm)
 trainer.predict(qml_model, dm_new, return_format = "numpy") # or "torch" for torch tensors if torch is backend,
 # should i add pennylane tensors as well? good question!
 ```
 ### Using Pipeline
 ```python
+pyqit.set_backend("torch")
 dm = DataModule(...)
 model_a = QMLmodel(**params)
 model_b = QMLmodel(**params) # or DLModel for that matter
-trainer = Trainer(backend_type="pennylane", max_epochs=10, learning_rate=0.01)
+trainer = Trainer( max_epochs=10, learning_rate=0.01)
 pipeline = QuantumPipeline(
             [
                 PipelineStage(model_a, name="stage_1", trainable=trainable_a),
@@ -35,7 +37,7 @@ pipeline = QuantumPipeline(
             mode="sequential",
         )
 pipeline.fit(datamodule=dm, trainers=trainer, fit_mode="sequential_greedy")
-preds = pipeline.predict(X_new, batch_size=8, backend="pennylane")
+preds = pipeline.predict(X_new, batch_size=8)
 ```
 You can also train just QMLmodel using `Trainer`
 here `anyQMLmodel` and `DLmodel` can be implemented by the user themselves or use the implemented ones from the package

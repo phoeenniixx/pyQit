@@ -5,6 +5,8 @@ from typing import Any, Optional, Union
 import numpy as np
 import pandas as pd
 
+from pyqit.core.config import get_backend
+
 
 def _is_torch_transform(fn) -> bool:
     if fn is None:
@@ -201,7 +203,6 @@ class DataModule:
         y,
         name: str = "dataset",
         normalize: str | None = None,
-        backend: str = "pennylane",
         split: tuple = (0.70, 0.15, 0.15),
         stratify: bool = False,
         seed: int | None = 42,
@@ -245,14 +246,8 @@ class DataModule:
         self.transform = transform
         self.shuffle = shuffle
         self.drop_last = drop_last
-        self.backend = backend
-        if self.backend not in ("pennylane", "torch"):
-            raise ValueError(
-                f"Unsupported backend {self.backend!r}. "
-                "Valid options: 'pennylane', 'torch', or None."
-            )
 
-        self._backend = self.backend
+        self._backend = get_backend()
         self._normalizer = None
         self._numpy_transform = None
         self._torch_transform = None
@@ -298,7 +293,7 @@ class DataModule:
 
     def to_lightning(self):
         """Converts itself to a Lightning adapter if the backend requires it."""
-        if self.backend != "torch":
+        if self._backend != "torch":
             raise ValueError(
                 f"Cannot generate a Lightning adapter for {self.backend}" " backend."
             )

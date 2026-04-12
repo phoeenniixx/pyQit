@@ -4,6 +4,7 @@ import pennylane as qml
 import pennylane.numpy as np
 
 from pyqit.ansatzes.sel import SELAnsatz
+from pyqit.core.config import get_backend
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_expval_z, measure_probs
 from pyqit.models.base.quantum_model import BaseQuantumModel
@@ -25,7 +26,6 @@ class VQCClassifier(BaseQuantumModel):
         n_classes=2,
         measure_fn=None,
         measure_wires=None,
-        backend="pennylane",
         device="default.qubit",
     ):
         if not inspect.isclass(ansatz):
@@ -53,7 +53,7 @@ class VQCClassifier(BaseQuantumModel):
         self.n_classes = n_classes
         self.measure_fn = measure_fn
         self.measure_wires = measure_wires
-        self.backend = backend
+        self.backend = get_backend()
         self.device = device
 
         self._ansatz_name = self.ansatz.__name__
