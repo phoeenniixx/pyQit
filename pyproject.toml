@@ -88,7 +88,7 @@ include = ["pyqit*"]
 [build-system]
 build-backend = "setuptools.build_meta"
 requires = [
-  "setuptools>=70.0.0",
+  "setuptools>=82.0.1",
 ]
 
 [tool.pytest.ini_options]
