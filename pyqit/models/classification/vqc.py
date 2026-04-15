@@ -8,15 +8,11 @@ from pyqit.core.config import get_backend
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_expval_z, measure_probs
 from pyqit.models.base.quantum_model import BaseQuantumModel
+from pyqit.models.classification.classifier_mixin import ClassifierMixin
 from pyqit.utils import _is_torch
 
 
-class VQCClassifier(BaseQuantumModel):
-    _tags = {
-        "object_type": "model",
-        "is_quantum": True,
-    }
-
+class VQCClassifier(BaseQuantumModel, ClassifierMixin):
     def __init__(
         self,
         n_qubits=4,
@@ -27,6 +23,7 @@ class VQCClassifier(BaseQuantumModel):
         measure_fn=None,
         measure_wires=None,
         device="default.qubit",
+        shots=None,
     ):
         if not inspect.isclass(ansatz):
             raise TypeError(
@@ -46,6 +43,11 @@ class VQCClassifier(BaseQuantumModel):
                 f"Maximum: {2**n_qubits}. Increase n_qubits or reduce n_classes."
             )
 
+        super().__init__(
+            device=device,
+            shots=shots,
+        )
+
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self.ansatz = ansatz
@@ -55,6 +57,7 @@ class VQCClassifier(BaseQuantumModel):
         self.measure_wires = measure_wires
         self.backend = get_backend()
         self.device = device
+        self.shots = shots
 
         self._ansatz_name = self.ansatz.__name__
         self._encoder_name = self.encoder.__name__
@@ -78,12 +81,13 @@ class VQCClassifier(BaseQuantumModel):
         else:
             self._measure_wires = self.measure_wires
 
-        super().__init__(
-            ansatz_obj=self.ansatz_obj,
-            embedding_obj=self.embedding_obj,
-            measure_fn=self._measure_fn,
-            measure_wires=self._measure_wires,
-            device=device,
+        self.weight_keys = list(self.ansatz_obj.get_weight_shapes().keys())
+
+        dev = qml.device(self.device, wires=self.n_qubits, shots=self.shots)
+        primary_qnode = qml.QNode(self._circuit, dev, interface=self.get_interface())
+
+        self.register_qnode(
+            "main_circuit", primary_qnode, self.ansatz_obj.get_weight_shapes()
         )
 
     def __repr__(self):
@@ -93,14 +97,13 @@ class VQCClassifier(BaseQuantumModel):
             f"encoder={self._encoder_name}, device='{self.device}')"
         )
 
-    def forward(self, X, *custom_weights):
-        current_weights = (
-            custom_weights
-            if custom_weights
-            else [self.weights[k] for k in self.weight_keys]
-        )
+    def _circuit(self, inputs, **weights):
+        self.embedding_obj.forward(inputs)
+        self.ansatz_obj.build_circuit(weights)
+        return self._measure_fn(self._measure_wires)
 
-        raw_output = self.qnode(X, *current_weights)
+    def forward(self, X, **custom_weights):
+        raw_output = self.execute_qnode("main_circuit", X, **custom_weights)
 
         if self.n_classes == 2:
             return (raw_output + 1.0) / 2.0
@@ -112,24 +115,6 @@ class VQCClassifier(BaseQuantumModel):
             import pennylane.math as qml_math
 
             return class_probs / qml_math.sum(class_probs, axis=-1, keepdims=True)
-
-    def predict_step(self, X):
-        current_weights = [self.weights[k] for k in self.weight_keys]
-        raw_output = self.qnode(X, *current_weights)
-
-        is_torch = _is_torch(raw_output)
-
-        if self.n_classes == 2:
-            if is_torch:
-                return (raw_output >= 0.0).int()
-            else:
-                return (raw_output >= 0.0).astype(int)
-        else:
-            class_raw = raw_output[: self.n_classes]
-            if is_torch:
-                return class_raw.argmax(dim=0)
-            else:
-                return class_raw.argmax(axis=0)
 
     @classmethod
     def get_test_params(cls):

@@ -5,86 +5,95 @@ import pennylane.numpy as pnp
 from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.core.config import get_backend
-from pyqit.core.embeddings import AngleEmbedding
-from pyqit.core.measurements import measure_expval_z
 from pyqit.models.base.base import BaseModel
 
 
 class BaseQuantumModel(BaseModel):
+    _tags = {
+        "object_type": "model",
+        "is_quantum": True,
+    }
+
     def __init__(
         self,
-        ansatz_obj,
-        embedding_obj=None,
-        measure_fn=None,
-        measure_wires=None,
         device="default.qubit",
         shots=None,
     ):
-        self.ansatz_obj = ansatz_obj
-        self.embedding_obj = embedding_obj
-        self.measure_wires = measure_wires
-        self.measure_fn = measure_fn
         self.device = device
         self.shots = shots
         self.backend = get_backend()
 
-        self._device_obj = qml.device(
-            self.device, wires=ansatz_obj.n_qubits, shots=self.shots
-        )
+        self._qnodes = {}
 
-        self._embedding_obj = (
-            self.embedding_obj
-            if self.embedding_obj
-            else AngleEmbedding(ansatz_obj.n_qubits)
-        )
-        self._measure_wires = self.measure_wires or [0]
-        self._measure_fn = self.measure_fn or measure_expval_z
+    def get_interface(self):
+        return "torch" if self.backend == "torch" else "autograd"
 
-        self.shapes = ansatz_obj.get_weight_shapes()
-        self.weight_keys = list(self.shapes.keys())
-
-        self._compile_backend(self.backend)
-
-    def _compile_backend(self, backend: str):
-        self.backend = backend
-
-        interface = "torch" if backend == "torch" else "autograd"
-        self.qnode = qml.QNode(self._circuit, self._device_obj, interface=interface)
-
-        self.weights = self._init_weights(self.shapes)
-
-    def _init_weights(self, shapes):
-        if getattr(
-            self, "backend", "pennylane"
-        ) == "torch" and _check_soft_dependencies(["torch"], severity="error"):
+    def register_qnode(self, name: str, qnode: qml.QNode, weight_shapes: dict):
+        if self.backend == "torch" and _check_soft_dependencies(
+            ["torch"], severity="none"
+        ):
             import torch
 
-            return {
-                name: torch.rand(shape, dtype=torch.float64, requires_grad=True)
-                for name, shape in shapes.items()
-            }
+            torch_layer = qml.qnn.TorchLayer(qnode, weight_shapes)
+            setattr(self, name, torch_layer)
+            self._qnodes[name] = torch_layer
         else:
-            return {
-                name: pnp.random.uniform(0, 2 * pnp.pi, size=shape, requires_grad=True)
-                for name, shape in shapes.items()
+            setattr(self, name, qnode)
+            self._qnodes[name] = {
+                "node": qnode,
+                "weights": {
+                    w: pnp.random.uniform(0, 2 * pnp.pi, size=s, requires_grad=True)
+                    for w, s in weight_shapes.items()
+                },
             }
 
+    def execute_qnode(self, name: str, X, **custom_weights):
+        if self.backend == "torch":
+            return getattr(self, name)(X)
+        else:
+            node_data = self._qnodes[name]
+            if custom_weights:
+                prefix = f"{name}."
+                weights = {
+                    k.replace(prefix, ""): v
+                    for k, v in custom_weights.items()
+                    if k.startswith(prefix)
+                }
+            else:
+                weights = node_data["weights"]
+            return node_data["node"](X, **weights)
+
+    @abstractmethod
     def _circuit(self, inputs, *flat_weights):
-        weights_dict = dict(zip(self.weight_keys, flat_weights))
-        self._embedding_obj.forward(inputs)
-        self.ansatz_obj.build_circuit(weights_dict)
-        return self._measure_fn(self._measure_wires)
+        pass
 
     @abstractmethod
     def forward(self, X):
         pass
 
-    @abstractmethod
-    def predict_step(self, X):
-        pass
+    @property
+    def weights(self):
+        flat_weights = {}
+        if self.backend == "torch":
+            import torch
 
-    def update_weights(self, new_weights):
-        self.weights = new_weights
+            for node_name, node in self._qnodes.items():
+                if isinstance(node, torch.nn.Module):
+                    for w_name, param in node.named_parameters():
+                        flat_weights[f"{node_name}.{w_name}"] = param
+        else:
+            for node_name, data in self._qnodes.items():
+                for w_name, w_val in data["weights"].items():
+                    flat_weights[f"{node_name}.{w_name}"] = w_val
+        return flat_weights
+
+    def update_weights(self, flat_weights_dict):
+        if self.backend == "torch":
+            return
+
+        for flat_key, new_val in flat_weights_dict.items():
+            node_name, w_name = flat_key.split(".", 1)
+            self._qnodes[node_name]["weights"][w_name] = new_val
 
     def __call__(self, X):
         return self.forward(X)

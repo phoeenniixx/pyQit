@@ -221,9 +221,6 @@ class Trainer:
         datamodule: DataModule,
     ) -> TrainingHistory:
         history = TrainingHistory()
-        self._adam_m = None
-        self._adam_v = None
-        self._adam_t = 0
         weight_keys = list(model.weights.keys())
         current_weights = [
             pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
@@ -247,8 +244,9 @@ class Trainer:
         best_native_val_loss = float("inf")
 
         def batch_cost(X_b, y_b, *weight_tensors):
-            model.update_weights(dict(zip(weight_keys, weight_tensors)))
-            preds = model.forward(X_b, *weight_tensors)
+            flat_kwargs = dict(zip(weight_keys, weight_tensors))
+            model.update_weights(flat_kwargs)
+            preds = model.forward(X_b, **flat_kwargs)
             if preds.ndim == 0:
                 preds = pnp.expand_dims(preds, axis=0)
             return loss_fn(preds, y_b)
@@ -382,23 +380,12 @@ class Trainer:
                 "Lightning is not installed. "
                 "Please install it to use the PyTorch backend."
             )
-        torch = _safe_import("torch")
 
         from pyqit.core._loss_mapping import get_loss_fn
         from pyqit.core.adapters.lightning import (
             _LightningModelAdapter,
         )
         from pyqit.core.callbacks.history import HistoryCallback
-
-        torch_weights = {
-            k: (
-                torch.tensor(np.array(w), dtype=torch.float64, requires_grad=True)
-                if not isinstance(w, torch.Tensor)
-                else w.detach().requires_grad_(True)
-            )
-            for k, w in model.weights.items()
-        }
-        model.update_weights(torch_weights)
 
         loss_func = get_loss_fn(self.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)

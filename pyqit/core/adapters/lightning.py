@@ -27,6 +27,10 @@ class _LightningModelAdapter(LightningModule):
         self.lr = lr
         self.optimizer_name = optimizer_name
         self.loss_fn = loss_fn
+        if hasattr(pyqit_model, "_qnodes"):
+            for name, node in pyqit_model._qnodes.items():
+                if isinstance(node, torch.nn.Module):
+                    self.add_module(name, node)
 
     def forward(self, x):
         return self.pyqit_model(x)
@@ -56,7 +60,10 @@ class _LightningModelAdapter(LightningModule):
         self.log("val_loss", loss, prog_bar=True, on_epoch=True)
 
     def configure_optimizers(self):
-        parameters = list(self.pyqit_model.weights.values())
+        parameters = list(self.parameters())
+
+        if not parameters:
+            raise ValueError("No parameters found! TorchLayers were not registered.")
         if self.optimizer_name == "sgd":
             return torch.optim.SGD(parameters, lr=self.lr)
         return torch.optim.Adam(parameters, lr=self.lr)

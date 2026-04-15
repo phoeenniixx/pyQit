@@ -74,9 +74,17 @@ class AmplitudeEmbedding(BaseEmbedding):
         "n_qubits_min": 1,
     }
 
+    def __init__(self, n_qubits: int, normalize: bool = True, pad_with: float = 0.0):
+        self.normalize = normalize
+        self.pad_with = pad_with
+        super().__init__(n_qubits=n_qubits)
+
     def forward(self, inputs):
         qml.AmplitudeEmbedding(
-            features=inputs, wires=range(self.n_qubits), normalize=False
+            features=inputs,
+            wires=range(self.n_qubits),
+            normalize=self.normalize,
+            pad_with=self.pad_with,
         )
 
     @classmethod
@@ -91,6 +99,9 @@ class IQPEmbedding(BaseEmbedding):
         "prescale": "angle_pi",
         "n_qubits_min": 2,
     }
+
+    def __init__(self, n_qubits: int):
+        super().__init__(n_qubits=n_qubits)
 
     def forward(self, inputs):
         qml.IQPEmbedding(features=inputs, wires=range(self.n_qubits))

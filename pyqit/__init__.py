@@ -1,6 +1,6 @@
 import logging
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: [PyQit] %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 from pyqit.core.config import get_backend, set_backend
 
