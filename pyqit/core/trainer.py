@@ -155,7 +155,6 @@ class Trainer:
         from pyqit.utils.diagnostic import check_barren_plateau
 
         logger = logging.getLogger("pyqit.trainer")
-        logger.info("Running Barren Plateau diagnostic...")
         result = check_barren_plateau(
             model=model,
             datamodule_or_X=datamodule,

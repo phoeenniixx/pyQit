@@ -1,10 +1,6 @@
 import logging
 
-import matplotlib.pyplot as plt
 import numpy as np
-
-from pyqit.core._loss_mapping import get_loss_fn
-from pyqit.core.config import get_backend
 
 logger = logging.getLogger("pyqit.diagnostics")
 logger.setLevel(logging.INFO)
