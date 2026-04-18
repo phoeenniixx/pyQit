@@ -1,10 +1,11 @@
 from pyqit.base import _PyQitObject
-from pyqit.utils import _is_torch
+from pyqit.utils.utils import _is_torch
 
 
 class ClassifierMixin(_PyQitObject):
     _tags = {
         "estimator_type": "classifier",
+        "bp_scale_factor": 0.25,
     }
 
     def predict_step(self, X):

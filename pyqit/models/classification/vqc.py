@@ -1,7 +1,6 @@
 import inspect
 
 import pennylane as qml
-import pennylane.numpy as np
 
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.config import get_backend
@@ -9,7 +8,6 @@ from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_expval_z, measure_probs
 from pyqit.models.base.quantum_model import BaseQuantumModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
-from pyqit.utils import _is_torch
 
 
 class VQCClassifier(BaseQuantumModel, ClassifierMixin):
@@ -128,6 +126,7 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
                 "n_classes": 2,
                 "ansatz": SELAnsatz,
                 "encoder": IQPEmbedding,
+                "trainer_kwargs": {"check_bp": True},
             },
             {
                 "n_qubits": 4,

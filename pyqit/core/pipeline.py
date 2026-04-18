@@ -4,7 +4,15 @@ from skbase.base import BaseMetaObject
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
-from pyqit.utils import _cat, _ensure_col, _is_torch, _mean, _round, _stack, _to_numpy
+from pyqit.utils.utils import (
+    _cat,
+    _ensure_col,
+    _is_torch,
+    _mean,
+    _round,
+    _stack,
+    _to_numpy,
+)
 
 
 class PipelineStage:

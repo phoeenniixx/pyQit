@@ -146,9 +146,8 @@ def _prescale_angle_pi(X, n_qubits):
         if n_f < n_qubits
         else X[:, :n_qubits]
     )
-    lo = X.min(axis=0)
-    hi = X.max(axis=0)
-    return (X - lo) / np.where(hi - lo == 0, 1.0, hi - lo) * np.pi
+
+    return X * np.pi
 
 
 def _prescale_amplitude(X, n_qubits):

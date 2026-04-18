@@ -89,6 +89,8 @@ class Trainer:
         enable_checkpointing: bool = False,
         logger: bool | object = False,
         lightning_accelerator: str = "cpu",
+        check_bp: bool = False,
+        bp_samples: int = 200,
     ):
         self.max_epochs = max_epochs
         self.lr = learning_rate
@@ -102,6 +104,8 @@ class Trainer:
         self.enable_checkpointing = enable_checkpointing
         self.logger = logger
         self.lightning_accelerator = lightning_accelerator
+        self.check_bp = check_bp
+        self.bp_samples = bp_samples
 
     def fit(
         self,
@@ -136,10 +140,37 @@ class Trainer:
                           | lr={self.lr}"
                 )
 
+        if self.check_bp:
+            self._run_bp_diagnostic(model, datamodule)
+
         if backend == "torch":
             return self._fit_torch(model, datamodule)
         else:
             return self._fit_pennylane(model, datamodule)
+
+    def _run_bp_diagnostic(self, model, datamodule):
+        """Runs the pre-flight gradient variance check."""
+        import logging
+
+        from pyqit.utils.diagnostic import check_barren_plateau
+
+        logger = logging.getLogger("pyqit.trainer")
+        logger.info("Running Barren Plateau diagnostic...")
+        result = check_barren_plateau(
+            model=model,
+            datamodule_or_X=datamodule,
+            num_samples=self.bp_samples,
+            loss_name=self.loss_fn,
+            plot=False,
+        )
+        if self.verbose >= 1:
+            print(result)
+
+        if self.verbose == 0 and result.is_barren:
+            logger.warning(
+                "Barren Plateau detected! \
+                           Gradient variance is critically low."
+            )
 
     def _print_model_summary(self, model: BaseModel, dm: DataModule, backend: str):
         """Displays a professional table of the model architecture and data splits."""
