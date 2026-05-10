@@ -8,7 +8,6 @@
 > **A high-level quantum machine learning framework built on PennyLane.**
 > It aims to make quantum machine learning more accessible by reducing the steep learning curve, streamlining the boilerplate code required for training, and providing mathematically rigorous diagnostics.
 
----
 
 ## The Philosophy
 
@@ -23,7 +22,6 @@ Scaling Quantum Machine Learning (QML) research from toy models to enterprise hy
 * **Automated Diagnostics**: Features a mathematical "Pre-Flight Check" that runs Monte Carlo gradient sampling to detect Barren Plateaus mathematically *before* you waste compute time.
 * **Enterprise Data Orchestration**: A stateful `DataModule` handles classical normalization (`minmax`, `zscore`) safely and separately from stateless quantum embedding projections (`Amplitude`, `Angle`).
 
----
 
 ## Installation
 
