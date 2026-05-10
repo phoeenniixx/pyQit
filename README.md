@@ -3,6 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)]()
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Build Status](https://github.com/phoeenniixx/pyqit/actions/workflows/tests.yml/badge.svg)](https://github.com/phoeenniixx/pyqit/actions)
 
 > **A high-level quantum machine learning framework built on PennyLane.**
 > It aims to make quantum machine learning more accessible by reducing the steep learning curve, streamlining the boilerplate code required for training, and providing mathematically rigorous diagnostics.
@@ -16,7 +17,8 @@ Scaling Quantum Machine Learning (QML) research from toy models to enterprise hy
 **PyQit** abstracts away the infrastructure so you can focus on the science.
 
 ### Key Features
-* **Lightweight & Modular:** PyQit runs natively on PennyLane and NumPy. **PyTorch and PyTorch Lightning are strictly optional soft dependencies.** If you don't need deep learning hybrid models or GPU orchestration, you don't have to install them.
+* **Lightweight & Modular:** PyQit runs natively on **PennyLane** and **NumPy**.
+    > **PyTorch and PyTorch Lightning are strictly optional soft dependencies.** If you don't need deep learning hybrid models or GPU orchestration, you don't have to install them.
 * **Backend Agnostic**: Seamlessly switch between native `pennylane` (pure Autograd) and `torch` (Lightning engine) with a single parameter.
 * **Automated Diagnostics**: Features a mathematical "Pre-Flight Check" that runs Monte Carlo gradient sampling to detect Barren Plateaus mathematically *before* you waste compute time.
 * **Enterprise Data Orchestration**: A stateful `DataModule` handles classical normalization (`minmax`, `zscore`) safely and separately from stateless quantum embedding projections (`Amplitude`, `Angle`).
@@ -87,4 +89,4 @@ history = trainer.fit(model, datamodule=dm)
 ```
 
 ## Contributing
-Contributions, issues, and feature requests are welcome! Feel free to check the issues page. If you are building novel ansatzes, custom embeddings, or new diagnostic tools, please submit a PR.
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/phoeenniixx/pyQit/issues). If you are building novel ansatzes, custom embeddings, or new diagnostic tools, please submit a PR.
