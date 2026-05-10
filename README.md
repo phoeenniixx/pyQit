@@ -23,7 +23,7 @@ Scaling Quantum Machine Learning (QML) research from toy models to enterprise hy
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 PyQit is currently in active development and is installed directly from source via `pyproject.toml`.
 
