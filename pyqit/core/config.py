@@ -8,6 +8,7 @@ _EXPLICITLY_SET: ContextVar[bool] = ContextVar("explicitly_set", default=False)
 
 
 def set_backend(backend: str):
+    """Set the quantum computing backend for the current context."""
     backend = backend.lower()
     if backend not in ["pennylane", "torch"]:
         raise ValueError(f"Unsupported backend '{backend}'.")
@@ -19,6 +20,7 @@ def set_backend(backend: str):
 
 
 def get_backend() -> str:
+    """Get the current quantum computing backend for the context."""
     if not _EXPLICITLY_SET.get():
         logger.warning(
             "No backend explicitly set for this context. Defaulting to 'pennylane'."
