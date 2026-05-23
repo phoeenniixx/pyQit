@@ -48,6 +48,7 @@ pip install -e .[dev]
 
 ## Quickstart
 Here is how you build a Variational Quantum Classifier (VQC) and run an automated Barren Plateau diagnostic in under 20 lines of code:
+
 ```python
 from sklearn.datasets import make_moons
 import numpy as np
@@ -85,6 +86,8 @@ trainer = Trainer(
 # Will print a diagnostic table evaluating your circuit against the McClean et al. baseline
 history = trainer.fit(model, datamodule=dm)
 ```
+
+> #### Have a look some tutorials [here](https://github.com/phoeenniixx/pyQit/tree/main/doc/tutorials/) for more info!
 
 ## Contributing
 Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/phoeenniixx/pyQit/issues). If you are building novel ansatzes, custom embeddings, or new diagnostic tools, please submit a PR.
