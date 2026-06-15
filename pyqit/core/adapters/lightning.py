@@ -21,6 +21,28 @@ else:
 
 
 class _LightningModelAdapter(LightningModule):
+    """
+    Adapter to wrap a model into a PyTorch Lightning Module.
+
+    This class handles the training loop, validation loop, and optimizer
+    configuration for the underlying PyQIT model, integrating seamlessly
+    with the PyTorch Lightning Trainer.
+
+    Parameters
+    ----------
+    pyqit_model : torch.nn.Module or callable
+        The core model to be wrapped. If it contains a `_qnodes` dictionary
+        with `torch.nn.Module` objects, they will be registered as submodules.
+    lr : float
+        The learning rate for the optimizer.
+    optimizer_name : str
+        The name of the optimizer to use. Supports "sgd"; defaults to "Adam"
+        for all other values.
+    loss_fn : callable
+        The loss function used for training and validation. It must accept
+        `preds` and `y` as arguments.
+    """
+
     def __init__(self, pyqit_model, lr, optimizer_name, loss_fn):
         super().__init__()
         self.pyqit_model = pyqit_model
@@ -70,6 +92,27 @@ class _LightningModelAdapter(LightningModule):
 
 
 class _LightningDataAdapter(LightningDataModule):
+    """
+    Adapter to wrap a PyQIT data module into a PyTorch Lightning DataModule.
+
+    This class extracts the internal training, validation, and testing arrays
+    from the PyQIT data module and converts them into standard PyTorch
+    DataLoaders compatible with the PyTorch Lightning Trainer.
+
+    Parameters
+    ----------
+    pyqit_dm : object
+        The internal PyQIT data module containing the raw data attributes
+        (`_X_train`, `_y_train`, etc.) and configuration parameters.
+    num_workers : int, default=0
+        The number of workers for data loading. (Note: Currently overridden
+        by `pyqit_dm.num_workers` in the loader configuration).
+    train_loader_kwargs : dict or None, optional
+        Additional keyword arguments to pass to the training DataLoader.
+    eval_loader_kwargs : dict or None, optional
+        Additional keyword arguments to pass to the evaluation DataLoader.
+    """
+
     def __init__(
         self,
         pyqit_dm,

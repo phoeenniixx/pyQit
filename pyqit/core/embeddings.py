@@ -45,6 +45,8 @@ class BaseEmbedding(_PyQitObject):
 
 
 class AngleEmbedding(BaseEmbedding):
+    """A wrapper for PennyLane's AngleEmbedding circuit."""
+
     _tags = {
         "embedding_type": "angle",
         "differentiable": True,
@@ -67,6 +69,8 @@ class AngleEmbedding(BaseEmbedding):
 
 
 class AmplitudeEmbedding(BaseEmbedding):
+    """A wrapper for PennyLane's AmplitudeEmbedding circuit."""
+
     _tags = {
         "embedding_type": "amplitude",
         "differentiable": False,
@@ -93,6 +97,8 @@ class AmplitudeEmbedding(BaseEmbedding):
 
 
 class IQPEmbedding(BaseEmbedding):
+    """A wrapper for PennyLane's IQPEmbedding circuit."""
+
     _tags = {
         "embedding_type": "iqp",
         "differentiable": False,
