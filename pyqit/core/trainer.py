@@ -114,8 +114,8 @@ class Trainer:
     ) -> TrainingHistory:
         backend = self.backend
         model_encoder_class = None
-        if hasattr(model, "_embedding_obj"):
-            model_encoder_class = type(model._embedding_obj)
+        if hasattr(model, "embedding_obj"):
+            model_encoder_class = type(model.embedding_obj)
 
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
@@ -195,8 +195,8 @@ class Trainer:
         )
         table.add_row(
             "Encoder",
-            type(getattr(model, "_embedding_obj", None)).__name__
-            if hasattr(model, "_embedding_obj")
+            type(getattr(model, "embedding_obj", None)).__name__
+            if hasattr(model, "embedding_obj")
             else "N/A",
         )
         table.add_row("Optimizer", self.optimizer.upper())

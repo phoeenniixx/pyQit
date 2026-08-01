@@ -80,6 +80,41 @@ class QuantumPipeline(BaseMetaObject):
     def __len__(self) -> int:
         return len(self.steps)
 
+    @staticmethod
+    def _expected_width(model):
+        """Feature width ``model`` expects."""
+        n_qubits = getattr(model, "n_qubits", None)
+        if n_qubits is None:
+            return None
+        embedding = getattr(model, "embedding_obj", None)
+        if getattr(type(embedding), "PRESCALE", None) == "amplitude":
+            return 2**n_qubits
+        return n_qubits
+
+    def _check_stage_width(self, stage, n_features):
+        """Raise if ``stage.model`` cannot consume ``n_features`` columns."""
+        expected = self._expected_width(stage.model)
+        if expected is None or n_features is None or expected == n_features:
+            return
+        raise ValueError(
+            f"Stage '{stage.name}' expects {expected} features "
+            f"but received {n_features}."
+        )
+
+    @staticmethod
+    def _dm_feature_width(dm):
+        """Feature width of a DataModule, tolerating transformed clones."""
+        for split in (dm._X_train, dm._X_val, dm._X_test):
+            if split is not None:
+                return split.shape[-1]
+        return None
+
+    def _check_fit_width(self, stage, dm):
+        """Validate the width a Trainer will actually feed ``stage.model``."""
+        if stage.input_slice:
+            return
+        self._check_stage_width(stage, self._dm_feature_width(dm))
+
     def forward(self, X):
         if self.mode == "sequential":
             return self._forward_sequential(X)
@@ -92,15 +127,9 @@ class QuantumPipeline(BaseMetaObject):
         current = X if _is_torch(X) else np.asarray(X)
         for _, stage in self.steps:
             inp = current[:, stage.input_slice] if stage.input_slice else current
-            n_features = inp.shape[-1]
+            self._check_stage_width(stage, inp.shape[-1])
 
-            model = stage.model
-            if hasattr(model, "n_qubits") and model.n_qubits != n_features:
-                raise ValueError(
-                    f"Stage '{stage.name}' expects {model.n_qubits} features "
-                    f"but received {n_features}."
-                )
-            out = model.forward(inp)
+            out = stage.model.forward(inp)
             out = _ensure_col(out)
             current = _cat(inp, out) if stage.passthrough else out
 
@@ -148,8 +177,8 @@ class QuantumPipeline(BaseMetaObject):
         n_qubits = getattr(first_model, "n_qubits", None)
 
         encoder_class = None
-        if hasattr(first_model, "_embedding_obj"):
-            encoder_class = type(first_model._embedding_obj)
+        if hasattr(first_model, "embedding_obj"):
+            encoder_class = type(first_model.embedding_obj)
 
         first_trainer = self._get_trainer(trainers, 0, self.steps[0][0])
         target_batch_size = getattr(
@@ -178,6 +207,7 @@ class QuantumPipeline(BaseMetaObject):
                 trainer = self._get_trainer(trainers, i, name)
                 if not trainer:
                     raise ValueError(f"Missing Trainer for stage '{name}'")
+                self._check_fit_width(stage, current_dm)
                 trainer.fit(stage.model, current_dm)
 
             if i < len(self.steps) - 1:
@@ -200,6 +230,7 @@ class QuantumPipeline(BaseMetaObject):
         if not trainer:
             raise ValueError(f"Missing Trainer for final stage '{last_name}'")
 
+        self._check_fit_width(last_stage, current_dm)
         trainer.fit(last_stage.model, current_dm)
 
     def _transform_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
@@ -207,6 +238,7 @@ class QuantumPipeline(BaseMetaObject):
             if X is None:
                 return None
             inp = X[:, stage.input_slice] if stage.input_slice else X
+            self._check_stage_width(stage, inp.shape[-1])
             is_torch_backend = getattr(dm, "_backend", "") == "torch"
 
             if is_torch_backend or _is_torch(inp):
@@ -287,6 +319,7 @@ class QuantumPipeline(BaseMetaObject):
 
             for i, (_, stage) in enumerate(self.steps):
                 inp = current[:, stage.input_slice] if stage.input_slice else current
+                self._check_stage_width(stage, inp.shape[-1])
 
                 if i < len(self.steps) - 1:
                     out = stage.model.forward(inp)
@@ -330,8 +363,8 @@ class QuantumPipeline(BaseMetaObject):
         n_qubits = getattr(first_stage_model, "n_qubits", None)
 
         encoder_class = None
-        if hasattr(first_stage_model, "_embedding_obj"):
-            encoder_class = type(first_stage_model._embedding_obj)
+        if hasattr(first_stage_model, "embedding_obj"):
+            encoder_class = type(first_stage_model.embedding_obj)
 
         dm.setup(
             stage="predict",

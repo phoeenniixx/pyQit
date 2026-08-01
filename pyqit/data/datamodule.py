@@ -246,6 +246,9 @@ class DataModule:
         self.shuffle = shuffle
         self.drop_last = drop_last
 
+        self.encoder = None
+        self.n_qubits = None
+
         self._backend = get_backend()
         self._normalizer = None
         self._numpy_transform = None
@@ -309,18 +312,21 @@ class DataModule:
         encoder: type | None = None,
         force: bool = False,
     ) -> "DataModule":
+        if batch_size is not None:
+            self.batch_size = batch_size
+
         if self._is_setup and not force:
             return self
 
-        self.batch_size = batch_size
+        if encoder is not None:
+            self.encoder = encoder
+        if n_qubits is not None:
+            self.n_qubits = n_qubits
 
-        self.encoder = encoder
-        self.n_qubits = n_qubits
-
-        active_encoder = encoder or self.encoder
+        active_encoder = self.encoder
 
         prescale = active_encoder.PRESCALE if active_encoder is not None else None
-        nq = n_qubits or self.n_qubits
+        nq = self.n_qubits
 
         numpy_fns, torch_fns = [], []
         fns = (
