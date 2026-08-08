@@ -8,7 +8,7 @@ from skbase.base import BaseMetaObject
 from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 from pyqit.core._loss_mapping import get_loss_fn
-from pyqit.core.config import get_backend
+from pyqit.core.config import get_backend, set_seed
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
 
@@ -112,6 +112,9 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
+        if self.seed is not None:
+            set_seed(self.seed)
+
         backend = self.backend
         model_encoder_class = None
         if hasattr(model, "embedding_obj"):

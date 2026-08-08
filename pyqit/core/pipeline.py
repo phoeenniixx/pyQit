@@ -170,6 +170,9 @@ class QuantumPipeline(BaseMetaObject):
                 raise ValueError(
                     f"fit_mode {fit_mode!r} not valid for sequential pipeline."
                 )
+
+        self._fit_normalize = datamodule.normalize
+        self._fit_normalizer = datamodule.normalizer
         return self
 
     def _setup_dm(self, datamodule: DataModule, trainers: Trainer) -> DataModule:
@@ -359,6 +362,10 @@ class QuantumPipeline(BaseMetaObject):
     ):
         dummy_y = np.zeros(len(X))
         dm = DataModule(X=X, y=dummy_y, batch_size=batch_size, split=(0.0, 0.0, 1.0))
+
+        dm.normalize = getattr(self, "_fit_normalize", None)
+        dm._normalizer = getattr(self, "_fit_normalizer", None)
+
         first_stage_model = self.steps[0][1].model
         n_qubits = getattr(first_stage_model, "n_qubits", None)
 

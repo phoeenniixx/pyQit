@@ -1,7 +1,7 @@
 """A module for core functionality."""
 
 from pyqit.core.callbacks import HistoryCallback
-from pyqit.core.config import get_backend, set_backend
+from pyqit.core.config import get_backend, set_backend, set_seed
 from pyqit.core.embeddings import AmplitudeEmbedding, AngleEmbedding, IQPEmbedding
 from pyqit.core.losses import cross_entropy_loss, hinge_loss, mse_loss
 from pyqit.core.measurements import measure_expval_x, measure_expval_z, measure_probs
@@ -22,6 +22,7 @@ __all__ = [
     "HistoryCallback",
     "set_backend",
     "get_backend",
+    "set_seed",
     "QuantumPipeline",
     "PipelineStage",
 ]

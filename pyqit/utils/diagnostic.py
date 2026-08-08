@@ -123,6 +123,8 @@ def check_barren_plateau(
 
     X, y_target = _resolve_input(datamodule_or_X, y, model)
 
+    X, y_target = X[:1], y_target[:1]
+
     quantum_keys, classical_keys = _split_weight_keys(model)
     all_keys = quantum_keys + classical_keys
 
@@ -203,7 +205,7 @@ def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):
 
     loss_fn = get_loss_fn(loss_name, backend="torch")
 
-    X_t = torch.as_tensor(np.asarray(X), dtype=torch.float64)[0:1]
+    X_t = torch.as_tensor(np.asarray(X), dtype=torch.float64)
     y_t = torch.as_tensor(np.asarray(y), dtype=torch.float64)
 
     original_state = {
