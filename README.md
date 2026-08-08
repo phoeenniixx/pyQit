@@ -29,7 +29,7 @@ PyQit is currently in active development and is installed directly from source v
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/pyqit.git
+git clone https://github.com/phoeenniixx/pyqit.git
 cd pyqit
 
 # 2. Base Installation (PennyLane native, NO PyTorch required)
