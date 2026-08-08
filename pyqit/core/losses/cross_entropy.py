@@ -1,39 +1,6 @@
 import pennylane.numpy as pnp
 
-
-def mse_loss(preds, targets):
-    """Mean Squared Error loss function.
-    Parameters
-    ----------
-    preds : array-like
-        The predicted values from the model.
-    targets : array-like
-        The ground truth target values. Expected to have the same shape
-        as `preds`.
-
-    Returns
-    -------
-    float or tensor
-        The computed mean squared error loss across the batch.
-    """
-    return pnp.mean((preds - targets) ** 2)
-
-
-def hinge_loss(preds, targets):
-    """Hinge loss function for binary classification.
-    Parameters
-    ----------
-    preds : array-like
-        The predicted raw scores (logits) from the model.
-    targets : array-like
-        The ground truth binary labels, expected to be encoded as 0 or 1.
-
-    Returns
-    -------
-    float or tensor
-        The computed mean hinge loss across the batch."""
-    y_signed = 2.0 * targets - 1.0
-    return pnp.mean(pnp.maximum(0, 1 - y_signed * preds))
+from pyqit.core.losses.base import BaseLoss
 
 
 def cross_entropy_loss(preds, targets):
@@ -72,3 +39,28 @@ def cross_entropy_loss(preds, targets):
 
     log_p = pnp.log(probs[pnp.arange(n), targets.astype(int)])
     return -pnp.mean(log_p)
+
+
+class CrossEntropyLoss(BaseLoss):
+    """Cross entropy over class probabilities."""
+
+    _tags = {"name": "cross_entropy", "target_dtype": "int"}
+
+    def _pennylane(self, preds, targets):
+        return cross_entropy_loss(preds, targets)
+
+    def _torch(self, preds, targets):
+        import torch
+        import torch.nn.functional as F
+
+        probs = torch.clamp(preds, 1e-9, 1.0 - 1e-9)
+
+        if probs.ndim == 1 or (probs.ndim == 2 and probs.shape[1] == 1):
+            probs = probs.flatten()
+            t = targets.to(probs.dtype).flatten()
+            return -(t * torch.log(probs) + (1.0 - t) * torch.log(1.0 - probs)).mean()
+
+        return F.nll_loss(torch.log(probs), targets.long().flatten())
+
+
+_REGISTRY_CACHE = None

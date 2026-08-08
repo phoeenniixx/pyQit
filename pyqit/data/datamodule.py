@@ -67,7 +67,7 @@ def _make_torch_loader(
     class _DS(Dataset):
         def __init__(self, X, y):
             self.X = torch.tensor(X, dtype=torch.float32)
-            self.y = torch.tensor(y, dtype=torch.long)
+            self.y = torch.tensor(y, dtype=torch.float32)
 
         def __len__(self):
             return len(self.X)
@@ -246,6 +246,9 @@ class DataModule:
         self.shuffle = shuffle
         self.drop_last = drop_last
 
+        self.encoder = None
+        self.n_qubits = None
+
         self._backend = get_backend()
         self._normalizer = None
         self._numpy_transform = None
@@ -294,7 +297,7 @@ class DataModule:
         """Converts itself to a Lightning adapter if the backend requires it."""
         if self._backend != "torch":
             raise ValueError(
-                f"Cannot generate a Lightning adapter for {self.backend}" " backend."
+                f"Cannot generate a Lightning adapter for {self._backend} backend."
             )
 
         from pyqit.core.adapters.lightning import _LightningDataAdapter
@@ -309,18 +312,21 @@ class DataModule:
         encoder: type | None = None,
         force: bool = False,
     ) -> "DataModule":
+        if batch_size is not None:
+            self.batch_size = batch_size
+
         if self._is_setup and not force:
             return self
 
-        self.batch_size = batch_size
+        if encoder is not None:
+            self.encoder = encoder
+        if n_qubits is not None:
+            self.n_qubits = n_qubits
 
-        self.encoder = encoder
-        self.n_qubits = n_qubits
-
-        active_encoder = encoder or self.encoder
+        active_encoder = self.encoder
 
         prescale = active_encoder.PRESCALE if active_encoder is not None else None
-        nq = n_qubits or self.n_qubits
+        nq = self.n_qubits
 
         numpy_fns, torch_fns = [], []
         fns = (

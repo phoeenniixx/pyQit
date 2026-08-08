@@ -7,8 +7,8 @@ import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
 from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
-from pyqit.core._loss_mapping import get_loss_fn
-from pyqit.core.config import get_backend
+from pyqit.core.config import get_backend, set_seed
+from pyqit.core.losses import get_loss_fn
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
 
@@ -112,10 +112,13 @@ class Trainer:
         model: BaseModel,
         datamodule: DataModule,
     ) -> TrainingHistory:
+        if self.seed is not None:
+            set_seed(self.seed)
+
         backend = self.backend
         model_encoder_class = None
-        if hasattr(model, "_embedding_obj"):
-            model_encoder_class = type(model._embedding_obj)
+        if hasattr(model, "embedding_obj"):
+            model_encoder_class = type(model.embedding_obj)
 
         n_qubits = getattr(model, "n_qubits", None)
         datamodule.setup(
@@ -195,8 +198,8 @@ class Trainer:
         )
         table.add_row(
             "Encoder",
-            type(getattr(model, "_embedding_obj", None)).__name__
-            if hasattr(model, "_embedding_obj")
+            type(getattr(model, "embedding_obj", None)).__name__
+            if hasattr(model, "embedding_obj")
             else "N/A",
         )
         table.add_row("Optimizer", self.optimizer.upper())
@@ -411,11 +414,11 @@ class Trainer:
                 "Please install it to use the PyTorch backend."
             )
 
-        from pyqit.core._loss_mapping import get_loss_fn
         from pyqit.core.adapters.lightning import (
             _LightningModelAdapter,
         )
         from pyqit.core.callbacks.history import HistoryCallback
+        from pyqit.core.losses import get_loss_fn
 
         loss_func = get_loss_fn(self.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)
