@@ -57,6 +57,15 @@ class _LightningModelAdapter(LightningModule):
     def forward(self, x):
         return self.pyqit_model(x)
 
+    @staticmethod
+    def _accuracy(preds, y):
+        """Hard-label accuracy, using the same rule as the pennylane path."""
+        if preds.ndim > 1 and preds.shape[1] > 1:
+            labels = preds.argmax(dim=1)
+        else:
+            labels = (preds >= 0.5).long().flatten()
+        return (labels == y.long().flatten()).to(preds.dtype).mean()
+
     def training_step(self, batch, batch_idx):
         X, y = batch
         preds = self(X)
@@ -72,6 +81,13 @@ class _LightningModelAdapter(LightningModule):
 
         loss = self.loss_fn(preds, y)
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(
+            "train_acc",
+            self._accuracy(preds, y),
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -80,6 +96,7 @@ class _LightningModelAdapter(LightningModule):
         y = y.to(preds.dtype)
         loss = self.loss_fn(preds, y)
         self.log("val_loss", loss, prog_bar=True, on_epoch=True)
+        self.log("val_acc", self._accuracy(preds, y), prog_bar=True, on_epoch=True)
 
     def configure_optimizers(self):
         parameters = list(self.parameters())
@@ -123,7 +140,7 @@ class _LightningDataAdapter(LightningDataModule):
         super().__init__()
         self.dm = pyqit_dm
 
-    def _build_loader(self, X, y):
+    def _build_loader(self, X, y, shuffle=False):
         from torch.utils.data import DataLoader, TensorDataset
 
         if X is None or y is None:
@@ -137,12 +154,14 @@ class _LightningDataAdapter(LightningDataModule):
             dataset,
             batch_size=self.dm.batch_size,
             num_workers=self.dm.num_workers,
-            shuffle=self.dm.shuffle,
+            shuffle=shuffle,
             drop_last=self.dm.drop_last,
         )
 
     def train_dataloader(self):
-        return self._build_loader(self.dm._X_train, self.dm._y_train)
+        return self._build_loader(
+            self.dm._X_train, self.dm._y_train, shuffle=self.dm.shuffle
+        )
 
     def val_dataloader(self):
         if self.dm._X_val is not None:
