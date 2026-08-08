@@ -297,7 +297,7 @@ class DataModule:
         """Converts itself to a Lightning adapter if the backend requires it."""
         if self._backend != "torch":
             raise ValueError(
-                f"Cannot generate a Lightning adapter for {self.backend}" " backend."
+                f"Cannot generate a Lightning adapter for {self._backend} backend."
             )
 
         from pyqit.core.adapters.lightning import _LightningDataAdapter

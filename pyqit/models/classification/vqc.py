@@ -5,7 +5,11 @@ import pennylane as qml
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.config import get_backend
 from pyqit.core.embeddings import AngleEmbedding
-from pyqit.core.measurements import measure_expval_z, measure_probs
+from pyqit.core.measurements import (
+    measure_expval_x,
+    measure_expval_z,
+    measure_probs,
+)
 from pyqit.models.base.quantum_model import BaseQuantumModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
 
@@ -78,6 +82,20 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
                 self._measure_wires = list(range(n_qubits))
         else:
             self._measure_wires = self.measure_wires
+
+        if (
+            n_classes == 2
+            and len(self._measure_wires) != 1
+            and self._measure_fn in (measure_expval_z, measure_expval_x)
+        ):
+            raise ValueError(
+                f"Binary classification reads one expectation value per sample, "
+                f"but measure_wires={self._measure_wires} names "
+                f"{len(self._measure_wires)} wires, which makes "
+                f"{self._measure_fn.__name__} return a tuple. Pass exactly one "
+                f"wire, set n_classes > 2, or supply a measure_fn that reduces "
+                f"the wires to a single value."
+            )
 
         self.weight_keys = list(self.ansatz_obj.get_weight_shapes().keys())
 

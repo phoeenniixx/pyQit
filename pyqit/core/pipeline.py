@@ -109,6 +109,27 @@ class QuantumPipeline(BaseMetaObject):
                 return split.shape[-1]
         return None
 
+    def _check_ensemble_consistent(self):
+        """Ensemble stages all receive the same X, so they must agree on shape."""
+        specs = []
+        for name, stage in self.steps:
+            embedding = getattr(stage.model, "embedding_obj", None)
+            specs.append(
+                (
+                    name,
+                    self._expected_width(stage.model),
+                    type(embedding).__name__ if embedding is not None else None,
+                )
+            )
+
+        if len({s[1:] for s in specs}) > 1:
+            detail = "; ".join(f"{n}: width={w}, encoder={e}" for n, w, e in specs)
+            raise ValueError(
+                "Ensemble stages are all fed the same input, but they disagree "
+                f"on what they accept: {detail}. Give every stage the same "
+                "n_qubits and encoder, or use mode='sequential'."
+            )
+
     def _check_fit_width(self, stage, dm):
         """Validate the width a Trainer will actually feed ``stage.model``."""
         if stage.input_slice:
@@ -156,6 +177,9 @@ class QuantumPipeline(BaseMetaObject):
         self, datamodule: DataModule, trainers=None, fit_mode: str = "sequential_greedy"
     ):
         if self.mode == "ensemble":
+            self._check_ensemble_consistent()
+            if not datamodule._is_setup:
+                self._setup_dm(datamodule, trainers)
             self._fit_independent(datamodule, trainers)
 
         elif self.mode == "sequential":
