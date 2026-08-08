@@ -4,8 +4,8 @@ import logging
 import numpy as np
 from skbase.utils.dependencies import _check_soft_dependencies
 
-from pyqit.core._loss_mapping import get_loss_fn
 from pyqit.core.config import get_backend
+from pyqit.core.losses import get_loss_fn
 
 logger = logging.getLogger("pyqit.diagnostics")
 

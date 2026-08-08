@@ -49,6 +49,16 @@ class _LightningModelAdapter(LightningModule):
         self.lr = lr
         self.optimizer_name = optimizer_name
         self.loss_fn = loss_fn
+        get_tag = getattr(loss_fn, "get_tag", None)
+        self.target_dtype = (
+            get_tag("target_dtype", "float")
+            if get_tag is not None
+            else (
+                "int"
+                if getattr(loss_fn, "__name__", "") == "cross_entropy"
+                else "float"
+            )
+        )
         if hasattr(pyqit_model, "_qnodes"):
             for name, node in pyqit_model._qnodes.items():
                 if isinstance(node, torch.nn.Module):
@@ -66,18 +76,16 @@ class _LightningModelAdapter(LightningModule):
             labels = (preds >= 0.5).long().flatten()
         return (labels == y.long().flatten()).to(preds.dtype).mean()
 
+    def _prepare_target(self, preds, y):
+        """Cast targets to what the configured loss expects."""
+        if self.target_dtype == "int" and preds.ndim > 1 and preds.shape[1] > 1:
+            return y.long()
+        return y.to(preds.dtype)
+
     def training_step(self, batch, batch_idx):
         X, y = batch
         preds = self(X)
-
-        if (
-            self.loss_fn.__name__ == "cross_entropy"
-            and preds.ndim > 1
-            and preds.shape[1] > 1
-        ):
-            y = y.long()
-        else:
-            y = y.to(preds.dtype)
+        y = self._prepare_target(preds, y)
 
         loss = self.loss_fn(preds, y)
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
@@ -93,7 +101,7 @@ class _LightningModelAdapter(LightningModule):
     def validation_step(self, batch, batch_idx):
         X, y = batch
         preds = self(X)
-        y = y.to(preds.dtype)
+        y = self._prepare_target(preds, y)
         loss = self.loss_fn(preds, y)
         self.log("val_loss", loss, prog_bar=True, on_epoch=True)
         self.log("val_acc", self._accuracy(preds, y), prog_bar=True, on_epoch=True)

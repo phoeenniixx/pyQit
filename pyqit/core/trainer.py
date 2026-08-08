@@ -7,8 +7,8 @@ import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
 from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
-from pyqit.core._loss_mapping import get_loss_fn
 from pyqit.core.config import get_backend, set_seed
+from pyqit.core.losses import get_loss_fn
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
 
@@ -414,11 +414,11 @@ class Trainer:
                 "Please install it to use the PyTorch backend."
             )
 
-        from pyqit.core._loss_mapping import get_loss_fn
         from pyqit.core.adapters.lightning import (
             _LightningModelAdapter,
         )
         from pyqit.core.callbacks.history import HistoryCallback
+        from pyqit.core.losses import get_loss_fn
 
         loss_func = get_loss_fn(self.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(model, self.lr, self.optimizer, loss_func)

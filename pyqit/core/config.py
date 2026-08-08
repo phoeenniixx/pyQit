@@ -8,6 +8,7 @@ logger = logging.getLogger("pyqit")
 
 _BACKEND: ContextVar[str] = ContextVar("backend", default="pennylane")
 _EXPLICITLY_SET: ContextVar[bool] = ContextVar("explicitly_set", default=False)
+_WARNED_UNSET: ContextVar[bool] = ContextVar("warned_unset", default=False)
 
 
 def set_backend(backend: str):
@@ -59,10 +60,10 @@ def set_seed(seed: int) -> int:
 
 def get_backend() -> str:
     """Get the current quantum computing backend for the context."""
-    if not _EXPLICITLY_SET.get():
+    if not _EXPLICITLY_SET.get() and not _WARNED_UNSET.get():
         logger.warning(
             "No backend explicitly set for this context. Defaulting to 'pennylane'."
         )
-        _EXPLICITLY_SET.set(True)
+        _WARNED_UNSET.set(True)
 
     return _BACKEND.get()
