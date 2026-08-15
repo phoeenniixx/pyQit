@@ -1,4 +1,6 @@
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
+import logging
 import time
 
 import numpy as np
@@ -11,6 +13,7 @@ from pyqit.core.config import get_backend, set_seed
 from pyqit.core.losses import get_loss_fn
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
+from pyqit.utils.utils import _count_params
 
 HAS_RICH = _check_soft_dependencies("rich", severity="none")
 if HAS_RICH:
@@ -26,6 +29,18 @@ if HAS_RICH:
     from rich.table import Table
 
     console = Console()
+
+
+@contextmanager
+def _lightning_log_level(level):
+    """Temporarily raise Lightning's logger level, restoring it afterwards."""
+    lit_logger = logging.getLogger("lightning.pytorch")
+    previous = lit_logger.level
+    lit_logger.setLevel(level)
+    try:
+        yield
+    finally:
+        lit_logger.setLevel(previous)
 
 
 class TrainingHistory:
@@ -104,6 +119,10 @@ class Trainer:
         self.lightning_accelerator = lightning_accelerator
         self.check_bp = check_bp
         self.bp_samples = bp_samples
+        # Set to False by QuantumPipeline while fitting a stage: the pipeline
+        # prints one summary naming every stage, so a per-model table from each
+        # stage would repeat it N times without saying which stage it describes.
+        self._print_summary = True
 
     def fit(
         self,
@@ -126,20 +145,21 @@ class Trainer:
             encoder=model_encoder_class,
         )
 
-        if self.verbose >= 2:
-            self._print_model_summary(model, datamodule, backend)
-        elif self.verbose == 1:
-            if HAS_RICH:
-                console.print(
-                    f"[bold cyan][Trainer][/bold cyan] \
-                        Starting [green]{backend}[/green] backend |\
-                              {self.max_epochs} epochs | lr={self.lr}\n"
-                )
-            else:
-                print(
-                    f"[Trainer] Starting {backend} backend | {self.max_epochs} epochs\
-                          | lr={self.lr}"
-                )
+        if self._print_summary:
+            if self.verbose >= 2:
+                self._print_model_summary(model, datamodule, backend)
+            elif self.verbose == 1:
+                if HAS_RICH:
+                    console.print(
+                        f"[bold cyan][Trainer][/bold cyan] Starting "
+                        f"[green]{backend}[/green] backend | "
+                        f"{self.max_epochs} epochs | lr={self.lr}\n"
+                    )
+                else:
+                    print(
+                        f"[Trainer] Starting {backend} backend | "
+                        f"{self.max_epochs} epochs | lr={self.lr}"
+                    )
 
         if self.check_bp:
             self._run_bp_diagnostic(model, datamodule)
@@ -151,8 +171,6 @@ class Trainer:
 
     def _run_bp_diagnostic(self, model, datamodule):
         """Runs the pre-flight gradient variance check."""
-        import logging
-
         from pyqit.utils.diagnostic import check_barren_plateau
 
         logger = logging.getLogger("pyqit.trainer")
@@ -199,6 +217,10 @@ class Trainer:
             type(getattr(model, "embedding_obj", None)).__name__
             if hasattr(model, "embedding_obj")
             else "N/A",
+        )
+        n_params = _count_params(model)
+        table.add_row(
+            "Trainable Params", str(n_params) if n_params is not None else "0"
         )
         table.add_row("Optimizer", self.optimizer.upper())
         table.add_row("Learning Rate", str(self.lr))
@@ -339,7 +361,7 @@ class Trainer:
                                 f"(val_loss: {val_loss:.4f})"
                             )
 
-                if self.verbose >= 0:
+                if self.verbose >= 1:
                     if progress:
                         val_str = (
                             f"| Val Loss: {val_loss:.4f}"
@@ -427,17 +449,21 @@ class Trainer:
         if self.enable_checkpointing:
             callbacks.append(ModelCheckpoint(save_weights_only=True))
 
-        pl_trainer = LightningTrainer(
-            max_epochs=self.max_epochs,
-            enable_progress_bar=(self.verbose >= 0),
-            callbacks=callbacks,
-            logger=self.logger,
-            enable_model_summary=(self.verbose >= 2),
-            enable_checkpointing=self.enable_checkpointing,
-            accelerator=self.lightning_accelerator,
-        )
+        quiet = not self._print_summary or self.verbose < 2
+        log_ctx = _lightning_log_level(logging.WARNING) if quiet else nullcontext()
 
-        pl_trainer.fit(pl_model, datamodule=pl_data)
+        with log_ctx:
+            pl_trainer = LightningTrainer(
+                max_epochs=self.max_epochs,
+                enable_progress_bar=(self.verbose >= 1),
+                callbacks=callbacks,
+                logger=self.logger,
+                enable_model_summary=False,
+                enable_checkpointing=self.enable_checkpointing,
+                accelerator=self.lightning_accelerator,
+            )
+
+            pl_trainer.fit(pl_model, datamodule=pl_data)
 
         return history
 
