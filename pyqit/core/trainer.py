@@ -85,7 +85,6 @@ class Trainer:
         loss_fn: str | Callable = "mse",
         verbose: int = 2,
         seed: int | None = 42,
-        num_workers: int = 2,
         enable_checkpointing: bool = False,
         logger: bool | object = False,
         lightning_accelerator: str = "cpu",
@@ -100,7 +99,6 @@ class Trainer:
         self.backend = get_backend()
         self.verbose = verbose
         self.seed = seed
-        self.num_workers = num_workers
         self.enable_checkpointing = enable_checkpointing
         self.logger = logger
         self.lightning_accelerator = lightning_accelerator
@@ -443,49 +441,6 @@ class Trainer:
 
         return history
 
-    def _accuracy_torch(self, model, dataloader) -> float:
-        import torch
-
-        if dataloader is None:
-            return float("nan")
-
-        correct, total = 0, 0
-        with torch.no_grad():
-            for X_b, y_b in dataloader:
-                preds = model.forward(torch.as_tensor(X_b))
-                y_tens = torch.as_tensor(y_b).squeeze()
-
-                if preds.ndim > 1 and preds.shape[1] > 1:
-                    preds_labels = preds.argmax(dim=1)
-                else:
-                    preds_labels = (preds >= 0.5).to(torch.int)
-
-                correct += (preds_labels == y_tens).sum().item()
-                total += len(y_tens)
-
-        return float(correct / total) if total > 0 else float("nan")
-
-    def _eval_loss_torch(self, model, dataloader, loss_fn) -> float:
-        import torch
-
-        if dataloader is None:
-            return float("nan")
-
-        losses = []
-        with torch.no_grad():
-            for X_b, y_b in dataloader:
-                preds = model.forward(torch.as_tensor(X_b))
-                y_tensor = torch.as_tensor(y_b)
-
-                if preds.ndim == 2 and preds.shape[1] > 1 and y_tensor.ndim == 1:
-                    y_target = y_tensor.to(torch.long)
-                else:
-                    y_target = y_tensor.to(dtype=preds.dtype)
-
-                losses.append(float(loss_fn(preds, y_target).item()))
-
-        return float(np.mean(losses))
-
     def predict(
         self,
         model: BaseModel | BaseMetaObject,
@@ -554,19 +509,6 @@ class Trainer:
                 for p in all_preds
             ]
             return np.concatenate(numpy_preds, axis=0)
-
-    @staticmethod
-    def _print_epoch(epoch, train_loss, val_loss, train_acc, val_acc, elapsed):
-        val_str = (
-            f"val_loss={val_loss:.4f}  val_acc={val_acc:.3f}"
-            if not np.isnan(val_loss)
-            else "no validation"
-        )
-        print(
-            f"  epoch {epoch:>4}  "
-            f"loss={train_loss:.4f}  acc={train_acc:.3f}  "
-            f"{val_str}  [{elapsed:.1f}s]"
-        )
 
     def __repr__(self) -> str:
         return (

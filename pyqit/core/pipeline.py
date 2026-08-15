@@ -435,6 +435,3 @@ class QuantumPipeline(BaseMetaObject):
     def __repr__(self):
         stage_str = "\n  ".join(str(s) for s in self.steps)
         return f"QuantumPipeline(mode={self.mode})\n  {stage_str}"
-
-    def summary(self):
-        pass

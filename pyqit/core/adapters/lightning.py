@@ -128,23 +128,12 @@ class _LightningDataAdapter(LightningDataModule):
     ----------
     pyqit_dm : object
         The internal PyQIT data module containing the raw data attributes
-        (`_X_train`, `_y_train`, etc.) and configuration parameters.
-    num_workers : int, default=0
-        The number of workers for data loading. (Note: Currently overridden
-        by `pyqit_dm.num_workers` in the loader configuration).
-    train_loader_kwargs : dict or None, optional
-        Additional keyword arguments to pass to the training DataLoader.
-    eval_loader_kwargs : dict or None, optional
-        Additional keyword arguments to pass to the evaluation DataLoader.
+        (`_X_train`, `_y_train`, etc.) and configuration parameters. Every
+        loader setting — `batch_size`, `num_workers`, `shuffle`, `drop_last` —
+        is read from it, so it is the only place to configure them.
     """
 
-    def __init__(
-        self,
-        pyqit_dm,
-        num_workers: int = 0,
-        train_loader_kwargs: dict | None = None,
-        eval_loader_kwargs: dict | None = None,
-    ):
+    def __init__(self, pyqit_dm):
         super().__init__()
         self.dm = pyqit_dm
 

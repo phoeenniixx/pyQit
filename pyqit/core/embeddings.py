@@ -39,10 +39,6 @@ class BaseEmbedding(_PyQitObject):
     def __call__(self, inputs):
         return self.forward(inputs)
 
-    @classmethod
-    def prescale_key(cls) -> str | None:
-        return cls.get_class_tags().get("prescale")
-
 
 class AngleEmbedding(BaseEmbedding):
     """A wrapper for PennyLane's AngleEmbedding circuit."""

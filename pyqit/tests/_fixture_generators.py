@@ -23,7 +23,8 @@ class BaseFixtureGenerator(_BaseFixtureGenerator, QuickTester):
         )
 
     @staticmethod
-    def _check_required_dependencies(object_pkg):
+    def _check_required_dependencies(object_pkg) -> bool:
+        """Whether the class's declared soft dependencies are all installed."""
         required_deps = object_pkg.get_class_tag("python_dependencies")
         if required_deps:
             try:
@@ -52,13 +53,16 @@ class BaseFixtureGenerator(_BaseFixtureGenerator, QuickTester):
         return False
 
     def _generate_object_class(self, test_name: str, **kwargs) -> tuple[list, list]:
-        """Filters the raw classes through the unified `is_excluded` check."""
+        """Filters the raw classes through `is_excluded` and soft-dep availability."""
         classes = []
         names = []
         for cls in self._all_objects():
-            if not self.is_excluded(test_name, cls):
-                classes.append(cls)
-                names.append(cls.__name__)
+            if self.is_excluded(test_name, cls):
+                continue
+            if not self._check_required_dependencies(cls):
+                continue
+            classes.append(cls)
+            names.append(cls.__name__)
         return classes, names
 
     def _generate_object_instance(self, test_name: str, **kwargs) -> tuple[list, list]:

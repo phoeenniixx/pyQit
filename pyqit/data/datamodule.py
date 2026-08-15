@@ -518,11 +518,6 @@ class DataModule:
         self._torch_transform = None
         return self
 
-    def summary(self):
-        # TODO: implement a summary method that prints
-        # out the configuration and stats of the DataModule
-        pass
-
     def __repr__(self):
         return (
             f"DataModule(name={self.name!r}, n={self.n_samples}, "
