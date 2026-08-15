@@ -20,10 +20,6 @@ class BaseModel(_PyQitObject):
     def forward(self, X):
         pass
 
-    @abstractmethod
-    def fit(self, X, y, **kwargs):
-        pass
-
     def __call__(self, X):
         return self.forward(X)
 

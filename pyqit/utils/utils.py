@@ -54,3 +54,11 @@ def _round(x):
     if _is_torch(x):
         return x.round()
     return np.round(x)
+
+
+def _count_params(model) -> int | None:
+    """Total scalar trainable parameters of ``model``, or None if it exposes none."""
+    weights = getattr(model, "weights", None)
+    if not weights:
+        return None
+    return int(sum(np.prod(tuple(w.shape), dtype=int) for w in weights.values()))
