@@ -267,6 +267,13 @@ class Trainer:
         if epoch + 1 == self.max_epochs:
             sys.stdout.write("\n")
 
+    def _save_pennylane_ckpt(self, weight_keys, weights) -> str:
+        ckpt_dir = self.checkpoint_dir or "checkpoints"
+        os.makedirs(ckpt_dir, exist_ok=True)
+        path = os.path.join(ckpt_dir, "best.npz")
+        np.savez(path, **dict(zip(weight_keys, weights)))
+        return path
+
     def _announce_restore(self, epoch: int, val_loss: float) -> None:
         """Report a best-weight restore; restoring silently would be a trap."""
         if self.verbose < 1:
@@ -362,18 +369,8 @@ class Trainer:
                         best_epoch = epoch
                         best_weights = [np.array(w) for w in current_weights]
 
-                        ckpt_dir = self.checkpoint_dir or "checkpoints"
-                        os.makedirs(ckpt_dir, exist_ok=True)
-                        np.savez(
-                            os.path.join(ckpt_dir, "best.npz"),
-                            **dict(zip(weight_keys, best_weights)),
-                        )
-
                         if self.verbose >= 1 and not HAS_RICH:
-                            print(
-                                "[Checkpoint] Saved new best model "
-                                f"(val_loss: {val_loss:.4f})"
-                            )
+                            print(f"[Checkpoint] New best (val_loss: {val_loss:.4f})")
 
                 if self.verbose >= 1:
                     if progress:
@@ -397,6 +394,14 @@ class Trainer:
         if best_weights is not None:
             model.update_weights(dict(zip(weight_keys, best_weights)))
             self._announce_restore(best_epoch, best_native_val_loss)
+
+        if self.enable_checkpointing:
+            self._save_pennylane_ckpt(
+                weight_keys,
+                best_weights
+                if best_weights is not None
+                else [np.array(w) for w in current_weights],
+            )
 
         if self.verbose >= 1:
             if HAS_RICH:
@@ -463,12 +468,13 @@ class Trainer:
         pl_data = datamodule.to_lightning()
 
         history = TrainingHistory()
+        has_val = datamodule.X_val is not None
         callbacks = [HistoryCallback(history)]
         ckpt_cb = None
         if self.enable_checkpointing:
             ckpt_cb = ModelCheckpoint(
                 dirpath=self.checkpoint_dir or "checkpoints",
-                monitor="val_loss" if datamodule.X_val is not None else None,
+                monitor="val_loss" if has_val else None,
                 save_weights_only=True,
             )
             callbacks.append(ckpt_cb)
@@ -485,6 +491,7 @@ class Trainer:
                 enable_model_summary=False,
                 enable_checkpointing=self.enable_checkpointing,
                 accelerator=self.lightning_accelerator,
+                limit_val_batches=0 if not has_val else 1.0,
             )
 
             pl_trainer.fit(pl_model, datamodule=pl_data)
