@@ -1,13 +1,14 @@
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 import logging
+import os
 import time
 
 import numpy as np
 import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
-from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
+from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.core.config import get_backend, set_seed
 from pyqit.core.losses import get_loss_fn
@@ -17,7 +18,6 @@ from pyqit.utils.utils import _count_params
 
 HAS_RICH = _check_soft_dependencies("rich", severity="none")
 if HAS_RICH:
-    from rich import box
     from rich.console import Console
     from rich.progress import (
         BarColumn,
@@ -101,6 +101,7 @@ class Trainer:
         verbose: int = 2,
         seed: int | None = 42,
         enable_checkpointing: bool = False,
+        checkpoint_dir: str | None = None,
         logger: bool | object = False,
         lightning_accelerator: str = "cpu",
         check_bp: bool = False,
@@ -115,13 +116,11 @@ class Trainer:
         self.verbose = verbose
         self.seed = seed
         self.enable_checkpointing = enable_checkpointing
+        self.checkpoint_dir = checkpoint_dir
         self.logger = logger
         self.lightning_accelerator = lightning_accelerator
         self.check_bp = check_bp
         self.bp_samples = bp_samples
-        # Set to False by QuantumPipeline while fitting a stage: the pipeline
-        # prints one summary naming every stage, so a per-model table from each
-        # stage would repeat it N times without saying which stage it describes.
         self._print_summary = True
 
     def fit(
@@ -268,6 +267,16 @@ class Trainer:
         if epoch + 1 == self.max_epochs:
             sys.stdout.write("\n")
 
+    def _announce_restore(self, epoch: int, val_loss: float) -> None:
+        """Report a best-weight restore; restoring silently would be a trap."""
+        if self.verbose < 1:
+            return
+        msg = f"Restored best weights from epoch {epoch} (val_loss: {val_loss:.4f})"
+        if HAS_RICH:
+            console.print(f"[bold green][Checkpoint][/bold green] {msg}")
+        else:
+            print(f"[Checkpoint] {msg}")
+
     def _fit_pennylane(
         self,
         model: BaseModel,
@@ -295,6 +304,8 @@ class Trainer:
             )
 
         best_native_val_loss = float("inf")
+        best_weights: list | None = None
+        best_epoch = -1
 
         def batch_cost(X_b, y_b, *weight_tensors):
             flat_kwargs = dict(zip(weight_keys, weight_tensors))
@@ -348,12 +359,15 @@ class Trainer:
                 if self.enable_checkpointing and not np.isnan(val_loss):
                     if val_loss < best_native_val_loss:
                         best_native_val_loss = val_loss
+                        best_epoch = epoch
+                        best_weights = [np.array(w) for w in current_weights]
 
-                        checkpoint_path = "pyqit_pennylane_checkpoint.npz"
-                        numpy_weights = {
-                            k: np.array(v) for k, v in zip(weight_keys, current_weights)
-                        }
-                        np.savez(checkpoint_path, **numpy_weights)
+                        ckpt_dir = self.checkpoint_dir or "checkpoints"
+                        os.makedirs(ckpt_dir, exist_ok=True)
+                        np.savez(
+                            os.path.join(ckpt_dir, "best.npz"),
+                            **dict(zip(weight_keys, best_weights)),
+                        )
 
                         if self.verbose >= 1 and not HAS_RICH:
                             print(
@@ -379,6 +393,10 @@ class Trainer:
                             time.sleep(0.05)
                     else:
                         self._native_progress(epoch, train_loss, val_loss, elapsed)
+
+        if best_weights is not None:
+            model.update_weights(dict(zip(weight_keys, best_weights)))
+            self._announce_restore(best_epoch, best_native_val_loss)
 
         if self.verbose >= 1:
             if HAS_RICH:
@@ -446,8 +464,14 @@ class Trainer:
 
         history = TrainingHistory()
         callbacks = [HistoryCallback(history)]
+        ckpt_cb = None
         if self.enable_checkpointing:
-            callbacks.append(ModelCheckpoint(save_weights_only=True))
+            ckpt_cb = ModelCheckpoint(
+                dirpath=self.checkpoint_dir or "checkpoints",
+                monitor="val_loss" if datamodule.X_val is not None else None,
+                save_weights_only=True,
+            )
+            callbacks.append(ckpt_cb)
 
         quiet = not self._print_summary or self.verbose < 2
         log_ctx = _lightning_log_level(logging.WARNING) if quiet else nullcontext()
@@ -464,6 +488,13 @@ class Trainer:
             )
 
             pl_trainer.fit(pl_model, datamodule=pl_data)
+
+        if ckpt_cb is not None and ckpt_cb.best_model_path:
+            import torch
+
+            state = torch.load(ckpt_cb.best_model_path, weights_only=False)
+            pl_model.load_state_dict(state["state_dict"])
+            self._announce_restore(history.best_epoch, history.best_val_loss)
 
         return history
 

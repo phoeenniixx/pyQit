@@ -3,7 +3,6 @@ from pennylane import numpy as np
 import pytest
 from skbase.utils.dependencies import _check_soft_dependencies
 
-from pyqit.ansatzes.base import BaseAnsatz
 from pyqit.tests._fixture_generators import BaseFixtureGenerator
 
 

@@ -14,7 +14,6 @@ from pyqit.utils.utils import (
     _mean,
     _round,
     _stack,
-    _to_numpy,
 )
 
 
@@ -34,7 +33,7 @@ class PipelineStage:
             flags.append("passthrough")
         if not self.trainable:
             flags.append("frozen")
-        if self.input_slice:
+        if self.input_slice is not None:
             flags.append(f"slice={self.input_slice}")
         flag_str = f" [{', '.join(flags)}]" if flags else ""
         return f"Stage({self.name}{flag_str})"
@@ -84,6 +83,15 @@ class QuantumPipeline(BaseMetaObject):
         return len(self.steps)
 
     @staticmethod
+    def _slice_input(X, input_slice):
+        """Select ``input_slice`` columns from ``X``, always returning 2-D."""
+        if X is None or input_slice is None:
+            return X
+        if isinstance(input_slice, (int, np.integer)):
+            return X[:, [int(input_slice)]]
+        return X[:, input_slice]
+
+    @staticmethod
     def _expected_width(model):
         """Feature width ``model`` expects."""
         n_qubits = getattr(model, "n_qubits", None)
@@ -114,6 +122,14 @@ class QuantumPipeline(BaseMetaObject):
 
     def _check_ensemble_consistent(self):
         """Ensemble stages all receive the same X, so they must agree on shape."""
+        sliced = [n for n, s in self.steps if s.input_slice is not None]
+        if sliced:
+            raise ValueError(
+                f"Stages {sliced} set input_slice, but ensemble mode feeds every "
+                "stage the same X and aggregates the results, so per-stage "
+                "column views are not applied. Use mode='sequential'."
+            )
+
         specs = []
         for name, stage in self.steps:
             embedding = getattr(stage.model, "embedding_obj", None)
@@ -135,8 +151,6 @@ class QuantumPipeline(BaseMetaObject):
 
     def _check_fit_width(self, stage, dm):
         """Validate the width a Trainer will actually feed ``stage.model``."""
-        if stage.input_slice:
-            return
         self._check_stage_width(stage, self._dm_feature_width(dm))
 
     def forward(self, X):
@@ -150,7 +164,7 @@ class QuantumPipeline(BaseMetaObject):
     def _forward_sequential(self, X):
         current = X if _is_torch(X) else np.asarray(X)
         for _, stage in self.steps:
-            inp = current[:, stage.input_slice] if stage.input_slice else current
+            inp = self._slice_input(current, stage.input_slice)
             self._check_stage_width(stage, inp.shape[-1])
 
             out = stage.model.forward(inp)
@@ -242,17 +256,19 @@ class QuantumPipeline(BaseMetaObject):
         current_dm = datamodule
 
         for i, (name, stage) in enumerate(self.steps):
+            stage_dm = self._slice_datamodule(current_dm, stage)
+
             if stage.trainable:
                 trainer = self._get_trainer(trainers, i, name)
                 if not trainer:
                     raise ValueError(f"Missing Trainer for stage '{name}'")
-                self._check_fit_width(stage, current_dm)
+                self._check_fit_width(stage, stage_dm)
                 self._announce_stage(verbose, i, name)
                 with self._quiet_stage_summary(trainer):
-                    trainer.fit(stage.model, current_dm)
+                    trainer.fit(stage.model, stage_dm)
 
             if i < len(self.steps) - 1:
-                current_dm = self._transform_datamodule(current_dm, stage)
+                current_dm = self._transform_datamodule(stage_dm, stage)
 
     def _fit_frozen_backbone(self, datamodule: DataModule, trainers, verbose: int = 0):
         current_dm = datamodule
@@ -263,7 +279,9 @@ class QuantumPipeline(BaseMetaObject):
                     f"frozen_backbone mode requires all stages except the last to "
                     f"be frozen. Stage '{stage.name}' has trainable=True."
                 )
-            current_dm = self._transform_datamodule(current_dm, stage)
+            current_dm = self._transform_datamodule(
+                self._slice_datamodule(current_dm, stage), stage
+            )
 
         last_idx = len(self.steps) - 1
         last_name, last_stage = self.steps[last_idx]
@@ -271,17 +289,38 @@ class QuantumPipeline(BaseMetaObject):
         if not trainer:
             raise ValueError(f"Missing Trainer for final stage '{last_name}'")
 
-        self._check_fit_width(last_stage, current_dm)
+        last_dm = self._slice_datamodule(current_dm, last_stage)
+        self._check_fit_width(last_stage, last_dm)
         self._announce_stage(verbose, last_idx, last_name)
         with self._quiet_stage_summary(trainer):
-            trainer.fit(last_stage.model, current_dm)
+            trainer.fit(last_stage.model, last_dm)
+
+    def _slice_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
+        """Restrict ``dm``'s features to ``stage.input_slice``."""
+        if stage.input_slice is None:
+            return dm
+
+        new_dm = dm.clone_empty()
+        new_dm._is_setup = True
+        new_dm._backend = dm._backend
+        new_dm._X_train = self._slice_input(dm._X_train, stage.input_slice)
+        new_dm._X_val = self._slice_input(dm._X_val, stage.input_slice)
+        new_dm._X_test = self._slice_input(dm._X_test, stage.input_slice)
+
+        new_dm._y_train = dm._y_train
+        new_dm._y_val = dm._y_val
+        new_dm._y_test = dm._y_test
+
+        return new_dm
 
     def _transform_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
+        """Run ``stage`` over every split. ``dm`` must already be sliced."""
+
         def _process_split(X):
             if X is None:
                 return None
-            inp = X[:, stage.input_slice] if stage.input_slice else X
-            self._check_stage_width(stage, inp.shape[-1])
+            inp = X
+            self._check_stage_width(stage, X.shape[-1])
             is_torch_backend = getattr(dm, "_backend", "") == "torch"
 
             if is_torch_backend or _is_torch(inp):
@@ -361,7 +400,7 @@ class QuantumPipeline(BaseMetaObject):
             current = X if _is_torch(X) else np.asarray(X)
 
             for i, (_, stage) in enumerate(self.steps):
-                inp = current[:, stage.input_slice] if stage.input_slice else current
+                inp = self._slice_input(current, stage.input_slice)
                 self._check_stage_width(stage, inp.shape[-1])
 
                 if i < len(self.steps) - 1:

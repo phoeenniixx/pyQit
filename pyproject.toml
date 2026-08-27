@@ -127,10 +127,12 @@ extend-ignore = [
   "C406", # Unnecessary list literal - rewrite as a dict literal.
   "C408", # Unnecessary dict call - rewrite as a literal.
   "C409", # Unnecessary list passed to tuple() - rewrite as a tuple literal.
-  "F401", # unused imports
   "S101", # use of assert
   "UP038", # isinstance(x, (a, b)) is not allowed
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyqit"]

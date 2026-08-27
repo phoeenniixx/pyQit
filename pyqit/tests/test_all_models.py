@@ -1,5 +1,4 @@
 import numpy as np
-import pennylane.numpy as pnp
 import pytest
 
 import pyqit
@@ -105,7 +104,7 @@ class TestAllModels(BaseFixtureGenerator):
         model = object_instance.clone()
 
         trainer_args = {
-            "max_epochs": 1,
+            "max_epochs": 3,
             "learning_rate": 0.1,
             "enable_checkpointing": True,
             "logger": True,
@@ -119,13 +118,26 @@ class TestAllModels(BaseFixtureGenerator):
         trainer.fit(model, datamodule=dm)
 
         import glob
-        import os
+
+        ckpt_files = glob.glob("checkpoints/**/*", recursive=True)
+        assert ckpt_files, f"{backend} checkpoint was not created!"
 
         if backend == "pennylane":
-            assert os.path.exists(
-                "pyqit_pennylane_checkpoint.npz"
-            ), "PennyLane checkpoint was not created!"
+            saved = dict(np.load(ckpt_files[0]))
+        else:
+            import torch
 
-        elif backend == "torch":
-            ckpt_files = glob.glob("lightning_logs/**/*.ckpt", recursive=True)
-            assert len(ckpt_files) > 0, "Lightning PyTorch checkpoint was not created!"
+            saved = torch.load(ckpt_files[0], weights_only=False)["state_dict"]
+
+        assert set(saved) == set(model.weights), (
+            f"checkpoint keys {sorted(saved)} do not match "
+            f"model weights {sorted(model.weights)}"
+        )
+        for key, value in saved.items():
+            np.testing.assert_allclose(
+                np.asarray(model.weights[key].detach().cpu())
+                if backend == "torch"
+                else np.asarray(model.weights[key]),
+                np.asarray(value),
+                err_msg=f"model weights '{key}' differ from the saved checkpoint",
+            )
