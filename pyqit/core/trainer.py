@@ -1,20 +1,23 @@
 from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
+import logging
+import os
 import time
 
 import numpy as np
 import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
-from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
+from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.core.config import get_backend, set_seed
 from pyqit.core.losses import get_loss_fn
 from pyqit.data.datamodule import DataModule
 from pyqit.models.base.base import BaseModel
+from pyqit.utils.utils import _count_params
 
 HAS_RICH = _check_soft_dependencies("rich", severity="none")
 if HAS_RICH:
-    from rich import box
     from rich.console import Console
     from rich.progress import (
         BarColumn,
@@ -26,6 +29,18 @@ if HAS_RICH:
     from rich.table import Table
 
     console = Console()
+
+
+@contextmanager
+def _lightning_log_level(level):
+    """Temporarily raise Lightning's logger level, restoring it afterwards."""
+    lit_logger = logging.getLogger("lightning.pytorch")
+    previous = lit_logger.level
+    lit_logger.setLevel(level)
+    try:
+        yield
+    finally:
+        lit_logger.setLevel(previous)
 
 
 class TrainingHistory:
@@ -86,6 +101,7 @@ class Trainer:
         verbose: int = 2,
         seed: int | None = 42,
         enable_checkpointing: bool = False,
+        checkpoint_dir: str | None = None,
         logger: bool | object = False,
         lightning_accelerator: str = "cpu",
         check_bp: bool = False,
@@ -100,10 +116,12 @@ class Trainer:
         self.verbose = verbose
         self.seed = seed
         self.enable_checkpointing = enable_checkpointing
+        self.checkpoint_dir = checkpoint_dir
         self.logger = logger
         self.lightning_accelerator = lightning_accelerator
         self.check_bp = check_bp
         self.bp_samples = bp_samples
+        self._print_summary = True
 
     def fit(
         self,
@@ -126,20 +144,21 @@ class Trainer:
             encoder=model_encoder_class,
         )
 
-        if self.verbose >= 2:
-            self._print_model_summary(model, datamodule, backend)
-        elif self.verbose == 1:
-            if HAS_RICH:
-                console.print(
-                    f"[bold cyan][Trainer][/bold cyan] \
-                        Starting [green]{backend}[/green] backend |\
-                              {self.max_epochs} epochs | lr={self.lr}\n"
-                )
-            else:
-                print(
-                    f"[Trainer] Starting {backend} backend | {self.max_epochs} epochs\
-                          | lr={self.lr}"
-                )
+        if self._print_summary:
+            if self.verbose >= 2:
+                self._print_model_summary(model, datamodule, backend)
+            elif self.verbose == 1:
+                if HAS_RICH:
+                    console.print(
+                        f"[bold cyan][Trainer][/bold cyan] Starting "
+                        f"[green]{backend}[/green] backend | "
+                        f"{self.max_epochs} epochs | lr={self.lr}\n"
+                    )
+                else:
+                    print(
+                        f"[Trainer] Starting {backend} backend | "
+                        f"{self.max_epochs} epochs | lr={self.lr}"
+                    )
 
         if self.check_bp:
             self._run_bp_diagnostic(model, datamodule)
@@ -151,8 +170,6 @@ class Trainer:
 
     def _run_bp_diagnostic(self, model, datamodule):
         """Runs the pre-flight gradient variance check."""
-        import logging
-
         from pyqit.utils.diagnostic import check_barren_plateau
 
         logger = logging.getLogger("pyqit.trainer")
@@ -200,6 +217,10 @@ class Trainer:
             if hasattr(model, "embedding_obj")
             else "N/A",
         )
+        n_params = _count_params(model)
+        table.add_row(
+            "Trainable Params", str(n_params) if n_params is not None else "0"
+        )
         table.add_row("Optimizer", self.optimizer.upper())
         table.add_row("Learning Rate", str(self.lr))
 
@@ -246,6 +267,23 @@ class Trainer:
         if epoch + 1 == self.max_epochs:
             sys.stdout.write("\n")
 
+    def _save_pennylane_ckpt(self, weight_keys, weights) -> str:
+        ckpt_dir = self.checkpoint_dir or "checkpoints"
+        os.makedirs(ckpt_dir, exist_ok=True)
+        path = os.path.join(ckpt_dir, "best.npz")
+        np.savez(path, **dict(zip(weight_keys, weights)))
+        return path
+
+    def _announce_restore(self, epoch: int, val_loss: float) -> None:
+        """Report a best-weight restore; restoring silently would be a trap."""
+        if self.verbose < 1:
+            return
+        msg = f"Restored best weights from epoch {epoch} (val_loss: {val_loss:.4f})"
+        if HAS_RICH:
+            console.print(f"[bold green][Checkpoint][/bold green] {msg}")
+        else:
+            print(f"[Checkpoint] {msg}")
+
     def _fit_pennylane(
         self,
         model: BaseModel,
@@ -273,6 +311,8 @@ class Trainer:
             )
 
         best_native_val_loss = float("inf")
+        best_weights: list | None = None
+        best_epoch = -1
 
         def batch_cost(X_b, y_b, *weight_tensors):
             flat_kwargs = dict(zip(weight_keys, weight_tensors))
@@ -326,20 +366,13 @@ class Trainer:
                 if self.enable_checkpointing and not np.isnan(val_loss):
                     if val_loss < best_native_val_loss:
                         best_native_val_loss = val_loss
-
-                        checkpoint_path = "pyqit_pennylane_checkpoint.npz"
-                        numpy_weights = {
-                            k: np.array(v) for k, v in zip(weight_keys, current_weights)
-                        }
-                        np.savez(checkpoint_path, **numpy_weights)
+                        best_epoch = epoch
+                        best_weights = [np.array(w) for w in current_weights]
 
                         if self.verbose >= 1 and not HAS_RICH:
-                            print(
-                                "[Checkpoint] Saved new best model "
-                                f"(val_loss: {val_loss:.4f})"
-                            )
+                            print(f"[Checkpoint] New best (val_loss: {val_loss:.4f})")
 
-                if self.verbose >= 0:
+                if self.verbose >= 1:
                     if progress:
                         val_str = (
                             f"| Val Loss: {val_loss:.4f}"
@@ -357,6 +390,18 @@ class Trainer:
                             time.sleep(0.05)
                     else:
                         self._native_progress(epoch, train_loss, val_loss, elapsed)
+
+        if best_weights is not None:
+            model.update_weights(dict(zip(weight_keys, best_weights)))
+            self._announce_restore(best_epoch, best_native_val_loss)
+
+        if self.enable_checkpointing:
+            self._save_pennylane_ckpt(
+                weight_keys,
+                best_weights
+                if best_weights is not None
+                else [np.array(w) for w in current_weights],
+            )
 
         if self.verbose >= 1:
             if HAS_RICH:
@@ -423,21 +468,40 @@ class Trainer:
         pl_data = datamodule.to_lightning()
 
         history = TrainingHistory()
+        has_val = datamodule.X_val is not None
         callbacks = [HistoryCallback(history)]
+        ckpt_cb = None
         if self.enable_checkpointing:
-            callbacks.append(ModelCheckpoint(save_weights_only=True))
+            ckpt_cb = ModelCheckpoint(
+                dirpath=self.checkpoint_dir or "checkpoints",
+                monitor="val_loss" if has_val else None,
+                save_weights_only=True,
+            )
+            callbacks.append(ckpt_cb)
 
-        pl_trainer = LightningTrainer(
-            max_epochs=self.max_epochs,
-            enable_progress_bar=(self.verbose >= 0),
-            callbacks=callbacks,
-            logger=self.logger,
-            enable_model_summary=(self.verbose >= 2),
-            enable_checkpointing=self.enable_checkpointing,
-            accelerator=self.lightning_accelerator,
-        )
+        quiet = not self._print_summary or self.verbose < 2
+        log_ctx = _lightning_log_level(logging.WARNING) if quiet else nullcontext()
 
-        pl_trainer.fit(pl_model, datamodule=pl_data)
+        with log_ctx:
+            pl_trainer = LightningTrainer(
+                max_epochs=self.max_epochs,
+                enable_progress_bar=(self.verbose >= 1),
+                callbacks=callbacks,
+                logger=self.logger,
+                enable_model_summary=False,
+                enable_checkpointing=self.enable_checkpointing,
+                accelerator=self.lightning_accelerator,
+                limit_val_batches=0 if not has_val else 1.0,
+            )
+
+            pl_trainer.fit(pl_model, datamodule=pl_data)
+
+        if ckpt_cb is not None and ckpt_cb.best_model_path:
+            import torch
+
+            state = torch.load(ckpt_cb.best_model_path, weights_only=False)
+            pl_model.load_state_dict(state["state_dict"])
+            self._announce_restore(history.best_epoch, history.best_val_loss)
 
         return history
 

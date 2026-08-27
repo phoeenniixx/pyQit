@@ -99,4 +99,7 @@ dmypy.json
 # checkpoints
 *.ckpt
 *.pkl
+*.npz
+checkpoints/
+lightning_logs/
 .DS_Store
