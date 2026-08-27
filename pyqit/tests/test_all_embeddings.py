@@ -3,7 +3,6 @@ from pennylane import numpy as np
 import pytest
 from skbase.utils.dependencies import _check_soft_dependencies
 
-from pyqit.core.embeddings import BaseEmbedding
 from pyqit.tests._fixture_generators import BaseFixtureGenerator
 from pyqit.tests.scenarios import _generate_embedding_data
 

@@ -32,8 +32,6 @@ class BaseQuantumModel(BaseModel):
         if self.backend == "torch" and _check_soft_dependencies(
             ["torch"], severity="none"
         ):
-            import torch
-
             torch_layer = qml.qnn.TorchLayer(qnode, weight_shapes)
             setattr(self, name, torch_layer)
             self._qnodes[name] = torch_layer

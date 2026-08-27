@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -517,11 +517,6 @@ class DataModule:
         self._numpy_transform = None
         self._torch_transform = None
         return self
-
-    def summary(self):
-        # TODO: implement a summary method that prints
-        # out the configuration and stats of the DataModule
-        pass
 
     def __repr__(self):
         return (
