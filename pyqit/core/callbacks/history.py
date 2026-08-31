@@ -1,42 +1,43 @@
-import time
+"""Records per-epoch metrics into a :class:`TrainingHistory`."""
 
-from skbase.utils.dependencies import _check_soft_dependencies
-
-if _check_soft_dependencies("lightning", severity="none"):
-    from lightning.pytorch import Callback
-else:
-
-    class Callback:
-        def __init__(self, *args, **kwargs):
-            raise ImportError(
-                "Lightning is not installed. "
-                "Please install it to use the PyTorch backend."
-            )
+from pyqit.core.callbacks.base import BaseCallback, LoopState
 
 
-class HistoryCallback(Callback):
+class HistoryCallback(BaseCallback):
+    """Copy each epoch's metrics into a ``TrainingHistory``.
+
+    Both loops install this, so ``history`` is filled by the same code path on
+    either backend rather than by an inline ``record`` call on one and a
+    Lightning callback on the other.
+
+    Parameters
+    ----------
+    history_obj : TrainingHistory
+        The object to append to. Supplied by the Trainer, which owns it and
+        returns it from ``fit``.
+    """
+
     def __init__(self, history_obj):
-        self.history = history_obj
-        self.epoch_start_time = 0
+        self.history_obj = history_obj
+        super().__init__()
 
-    def on_train_epoch_start(self, trainer, pl_module):
-        self.epoch_start_time = time.time()
+    @property
+    def history(self):
+        return self.history_obj
 
-    def on_train_epoch_end(self, trainer, pl_module):
-        metrics = trainer.callback_metrics
-
-        t_loss = metrics.get("train_loss", float("nan"))
-        v_loss = metrics.get("val_loss", float("nan"))
-        t_acc = metrics.get("train_acc", float("nan"))
-        v_acc = metrics.get("val_acc", float("nan"))
-
-        elapsed = time.time() - self.epoch_start_time
-
-        self.history.record(
-            epoch=trainer.current_epoch,
-            train_loss=float(t_loss),
-            val_loss=float(v_loss),
-            train_acc=float(t_acc),
-            val_acc=float(v_acc),
-            epoch_time=elapsed,
+    def on_epoch_end(self, state: LoopState) -> None:
+        m = state.metrics
+        self.history_obj.record(
+            epoch=state.epoch,
+            train_loss=m.get("train_loss", float("nan")),
+            val_loss=m.get("val_loss", float("nan")),
+            train_acc=m.get("train_acc", float("nan")),
+            val_acc=m.get("val_acc", float("nan")),
+            epoch_time=m.get("epoch_time", 0.0),
         )
+
+    @classmethod
+    def get_test_params(cls):
+        from pyqit.core.trainer import TrainingHistory
+
+        return [{"history_obj": TrainingHistory()}]

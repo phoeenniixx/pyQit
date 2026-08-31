@@ -2,8 +2,15 @@ from skbase.utils.dependencies import _check_soft_dependencies, _safe_import
 
 torch = _safe_import("torch")
 if _check_soft_dependencies("lightning", severity="none"):
-    from lightning.pytorch import LightningDataModule, LightningModule
+    from lightning.pytorch import Callback, LightningDataModule, LightningModule
 else:
+
+    class Callback:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "Lightning is not installed. "
+                "Please install it to use the PyTorch backend."
+            )
 
     class LightningModule:
         def __init__(self, *args, **kwargs):
@@ -111,7 +118,15 @@ class _LightningModelAdapter(LightningModule):
 
         if not parameters:
             raise ValueError("No parameters found! TorchLayers were not registered.")
-        if self.optimizer_name == "sgd":
+
+        # Case-folded here rather than in Trainer.__init__, which must store its
+        # arguments verbatim to satisfy skbase's get_params/clone contract. A
+        # bare `== "sgd"` would hand Trainer(optimizer="SGD") an Adam optimizer
+        # without saying so.
+        name = self.optimizer_name
+        name = name.lower() if isinstance(name, str) else name
+
+        if name == "sgd":
             return torch.optim.SGD(parameters, lr=self.lr)
         return torch.optim.Adam(parameters, lr=self.lr)
 
@@ -167,3 +182,58 @@ class _LightningDataAdapter(LightningDataModule):
 
     def test_dataloader(self):
         return self._build_loader(self.dm._X_test, self.dm._y_test)
+
+
+class _PyQitCallbackShim(Callback):
+    """Run pyqit callbacks from inside a Lightning training loop.
+
+    This is the whole reason a pyqit callback works on both backends. It reads
+    Lightning's ``callback_metrics`` into the same metric names the pennylane
+    loop produces, fires the pyqit hooks, and forwards a callback's stop request
+    onto ``trainer.should_stop`` so ``EarlyStopping`` ends a Lightning run the
+    same way it ends a pennylane one.
+
+    Parameters
+    ----------
+    callbacks : list of BaseCallback
+        The pyqit callbacks to drive.
+    state : LoopState
+        Shared state; the shim fills ``epoch`` and ``metrics`` each epoch.
+    """
+
+    METRIC_KEYS = ("train_loss", "val_loss", "train_acc", "val_acc")
+
+    def __init__(self, callbacks, state):
+        self.callbacks = list(callbacks)
+        self.state = state
+        self._epoch_start = 0.0
+
+    def _fire(self, hook):
+        for callback in self.callbacks:
+            getattr(callback, hook)(self.state)
+
+    def on_fit_start(self, trainer, pl_module):
+        self._fire("on_fit_start")
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        import time
+
+        self._epoch_start = time.time()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        import time
+
+        metrics = trainer.callback_metrics
+        self.state.epoch = trainer.current_epoch
+        self.state.metrics = {
+            key: float(metrics.get(key, float("nan"))) for key in self.METRIC_KEYS
+        }
+        self.state.metrics["epoch_time"] = time.time() - self._epoch_start
+
+        self._fire("on_epoch_end")
+
+        if self.state.stop:
+            trainer.should_stop = True
+
+    def on_fit_end(self, trainer, pl_module):
+        self._fire("on_fit_end")

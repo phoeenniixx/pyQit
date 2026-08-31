@@ -62,3 +62,37 @@ def _count_params(model) -> int | None:
     if not weights:
         return None
     return int(sum(np.prod(tuple(w.shape), dtype=int) for w in weights.values()))
+
+
+def _snapshot_weights(model) -> dict:
+    """Detached copy of ``model.weights``, safe to hold across further training.
+
+    Torch parameters are live objects that the optimizer mutates in place, so a
+    checkpoint that stored the references would silently track the *current*
+    weights rather than the best ones.
+    """
+    return {k: _to_numpy(v).copy() for k, v in model.weights.items()}
+
+
+def _restore_weights(model, snapshot: dict) -> None:
+    """Write ``snapshot`` back into ``model``, on either backend.
+
+    ``update_weights`` is a no-op under torch because autograd owns the
+    ``nn.Parameter`` objects, so the torch path copies into them in place
+    instead.
+    """
+    current = model.weights
+    if any(_is_torch(v) for v in current.values()):
+        import torch
+
+        with torch.no_grad():
+            for key, value in snapshot.items():
+                param = current[key]
+                param.copy_(torch.as_tensor(value, dtype=param.dtype))
+        return
+
+    import pennylane.numpy as pnp
+
+    model.update_weights(
+        {k: pnp.array(v, requires_grad=True) for k, v in snapshot.items()}
+    )
