@@ -8,6 +8,7 @@ import pennylane.numpy as pnp
 
 from pyqit.core.losses import get_loss_fn
 from pyqit.core.trainer.loops.base import BaseTrainingLoop
+from pyqit.utils.utils import _hard_labels
 
 
 class PennyLaneLoop(BaseTrainingLoop):
@@ -138,12 +139,7 @@ class PennyLaneLoop(BaseTrainingLoop):
                 y_target = pnp.array(y_b, requires_grad=False)
                 losses.append(float(loss_fn(preds, y_target)))
 
-            preds_arr = pnp.array(preds)
-            if preds_arr.ndim > 1 and preds_arr.shape[1] > 1:
-                labels = preds_arr.argmax(axis=1)
-            else:
-                labels = (preds_arr >= 0.5).astype(int).flatten()
-
+            labels = _hard_labels(preds)
             y_true = y_b.astype(int).flatten()
             correct += np.sum(labels == y_true)
             total += len(y_true)

@@ -210,6 +210,83 @@ class TestCallbacks:
             assert {"train_loss", "val_loss", "train_acc", "val_acc"} <= set(keys)
 
 
+class TestEcosystemParity:
+    """Where pyqit reimplements something Lightning also has, it must agree."""
+
+    @staticmethod
+    def _drive(callback, values):
+        from pyqit.core.callbacks.base import LoopState
+
+        class _SilentReporter:
+            def warn(self, *args, **kwargs):
+                pass
+
+        state = LoopState(
+            model=None,
+            datamodule=None,
+            history=None,
+            reporter=_SilentReporter(),
+            max_epochs=len(values),
+        )
+        for epoch, value in enumerate(values):
+            state.epoch = epoch
+            state.metrics = {"m": value}
+            callback.on_epoch_end(state)
+            if state.stop:
+                return epoch
+        return None
+
+    @pytest.mark.parametrize("patience", [0, 1, 2, 3])
+    def test_patience_counts_the_way_lightning_counts_it(self, patience):
+        """Lightning stops on ``wait_count >= patience``; so must this."""
+        values = [1.0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+        expected, best, wait = None, float("inf"), 0
+        for epoch, value in enumerate(values):
+            if value < best:
+                best, wait = value, 0
+            else:
+                wait += 1
+                if wait >= patience:
+                    expected = epoch
+                    break
+
+        stopper = EarlyStopping(monitor="m", patience=patience, verbose=False)
+        assert self._drive(stopper, values) == expected
+
+    def test_check_finite_stops_on_nan(self):
+        """A diverged circuit yields NaN, which never 'fails to improve'."""
+        stopper = EarlyStopping(monitor="m", patience=99, verbose=False)
+        assert self._drive(stopper, [1.0, float("nan")]) == 1
+        assert "not finite" in stopper.stopping_reason
+
+        lenient = EarlyStopping(
+            monitor="m", patience=99, check_finite=False, verbose=False
+        )
+        assert self._drive(lenient, [1.0, float("nan")]) is None
+
+    def test_defaults_come_from_skbase_not_a_second_derivation(self):
+        from pyqit.core.trainer.loops import PennyLaneLoop
+
+        assert not hasattr(PennyLaneLoop, "_trainer_defaults")
+        assert Trainer.get_param_defaults()["max_epochs"] == 30
+
+    def test_hard_label_rule_is_identical_across_backends(self):
+        """One rule, or the two backends report different accuracy silently."""
+        torch = pytest.importorskip("torch")
+        from pyqit.utils.utils import _hard_labels
+
+        for array in (
+            np.array([[0.1, 0.9], [0.8, 0.2], [0.4, 0.6]]),
+            np.array([[0.2], [0.5], [0.7]]),
+            np.array([0.2, 0.5, 0.7]),
+        ):
+            np.testing.assert_array_equal(
+                _to_numpy(_hard_labels(array)),
+                _to_numpy(_hard_labels(torch.as_tensor(array))),
+            )
+
+
 class TestPennyLaneEvaluation:
     def test_eval_train_acc_false_drops_only_train_accuracy(self):
         """The opt-out must not disturb any other recorded metric."""

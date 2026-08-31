@@ -56,6 +56,24 @@ def _round(x):
     return np.round(x)
 
 
+def _hard_labels(preds):
+    """Class predictions from raw model outputs, on either backend.
+
+    Multi-column output is an argmax over classes; a single column is
+    thresholded at 0.5. Shared rather than written once per backend: the two
+    copies would produce differing accuracy without either one raising.
+    """
+    if _is_torch(preds):
+        if preds.ndim > 1 and preds.shape[1] > 1:
+            return preds.argmax(dim=1)
+        return (preds >= 0.5).long().flatten()
+
+    preds = np.asarray(preds)
+    if preds.ndim > 1 and preds.shape[1] > 1:
+        return preds.argmax(axis=1)
+    return (preds >= 0.5).astype(int).flatten()
+
+
 def _count_params(model) -> int | None:
     """Total scalar trainable parameters of ``model``, or None if it exposes none."""
     weights = getattr(model, "weights", None)

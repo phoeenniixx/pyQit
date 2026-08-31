@@ -76,11 +76,10 @@ class _LightningModelAdapter(LightningModule):
 
     @staticmethod
     def _accuracy(preds, y):
-        """Hard-label accuracy, using the same rule as the pennylane path."""
-        if preds.ndim > 1 and preds.shape[1] > 1:
-            labels = preds.argmax(dim=1)
-        else:
-            labels = (preds >= 0.5).long().flatten()
+        """Hard-label accuracy, using the shared cross-backend labelling rule."""
+        from pyqit.utils.utils import _hard_labels
+
+        labels = _hard_labels(preds)
         return (labels == y.long().flatten()).to(preds.dtype).mean()
 
     def _prepare_target(self, preds, y):

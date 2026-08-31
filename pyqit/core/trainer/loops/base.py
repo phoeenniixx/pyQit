@@ -11,7 +11,6 @@ the class, and a new backend declares its own instead of editing shared code.
 """
 
 from abc import abstractmethod
-import inspect
 import warnings
 
 from pyqit.base.base_object import _PyQitObject
@@ -51,29 +50,21 @@ class BaseTrainingLoop(_PyQitObject):
 
         self._validate_config()
 
-    @staticmethod
-    def _trainer_defaults() -> dict:
-        from pyqit.core.trainer.trainer import Trainer
-
-        return {
-            name: param.default
-            for name, param in inspect.signature(Trainer.__init__).parameters.items()
-            if name != "self"
-        }
-
     def _is_set(self, param: str, defaults: dict) -> bool:
         """Whether the user moved ``param`` off its default.
 
-        Comparing against the signature default rather than against ``None``
-        means a backend only complains about settings that were actually asked
-        for, so constructing a Trainer with defaults is never noisy.
+        Comparing against the default rather than against ``None`` means a
+        backend only complains about settings that were actually asked for, so
+        constructing a Trainer with defaults is never noisy.
         """
         if not hasattr(self.trainer, param):
             return False
         return getattr(self.trainer, param) != defaults.get(param)
 
     def _validate_config(self) -> None:
-        defaults = self._trainer_defaults()
+        # skbase already derives these from the constructor signature; deriving
+        # them again with inspect would also force an import of Trainer here.
+        defaults = self.trainer.get_param_defaults()
         backend = self.get_tag("backend")
 
         for param, reason in (self.get_tag("rejects") or {}).items():
