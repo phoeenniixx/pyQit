@@ -19,13 +19,12 @@ class PennyLaneLoop(BaseTrainingLoop):
     routing serve both this loop and the barren-plateau sampler.
     """
 
-    _tags = {
-        "object_type": "training_loop",
-        "backend": "pennylane",
-        "rejects": ("backend_kwargs",),
-        "warns": ("logger",),
-        "reserved_backend_kwargs": (),
-    }
+    _tags = {"backend": "pennylane"}
+
+    # backend_kwargs targets lightning.pytorch.Trainer; there is none here.
+    rejects = ("backend_kwargs",)
+    # Metrics are returned in the TrainingHistory instead.
+    warns = ("logger",)
 
     def fit(self, model, datamodule, state, callbacks: list) -> None:
         """Train ``model`` with a ``qml`` optimizer. See ``BaseTrainingLoop.fit``."""
@@ -39,17 +38,15 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         train_loader = datamodule.train_loader(shuffle=True)
         val_loader = datamodule.val_loader(shuffle=False)
-        # Built once: shuffle=False makes it identical every epoch.
-        train_eval_loader = (
-            datamodule.train_loader(shuffle=False) if trainer.eval_train_acc else None
-        )
+
+        captured = {}
 
         def batch_cost(X_b, y_b, *weight_tensors):
             flat_kwargs = dict(zip(weight_keys, weight_tensors))
-            model.update_weights(flat_kwargs)
             preds = model.forward(X_b, **flat_kwargs)
             if preds.ndim == 0:
                 preds = pnp.expand_dims(preds, axis=0)
+            captured["preds"] = qml.math.unwrap(preds)
             return loss_fn(preds, y_b)
 
         opt = self._make_optimizer(trainer)
@@ -60,6 +57,7 @@ class PennyLaneLoop(BaseTrainingLoop):
             for epoch in range(trainer.max_epochs):
                 t0 = time.time()
                 batch_losses = []
+                correct = total = 0
 
                 for X_batch, y_batch in train_loader:
                     X_b = pnp.array(X_batch, requires_grad=False)
@@ -71,10 +69,14 @@ class PennyLaneLoop(BaseTrainingLoop):
                     current_weights = list(args_out[2:])
                     batch_losses.append(float(batch_loss))
 
+                    y_true = np.asarray(y_batch).astype(int).flatten()
+                    correct += np.sum(_hard_labels(captured["preds"]) == y_true)
+                    total += len(y_true)
+
                 model.update_weights(dict(zip(weight_keys, current_weights)))
 
                 train_loss = float(np.mean(batch_losses))
-                _, train_acc = self._evaluate(model, train_eval_loader)
+                train_acc = float(correct / total) if total else float("nan")
                 val_loss, val_acc = self._evaluate(model, val_loader, loss_fn)
 
                 state.epoch = epoch
@@ -113,7 +115,7 @@ class PennyLaneLoop(BaseTrainingLoop):
         return qml.GradientDescentOptimizer(stepsize=trainer.learning_rate)
 
     @staticmethod
-    def _evaluate(model, dataloader, loss_fn=None) -> tuple[float, float]:
+    def _evaluate(model, dataloader, loss_fn) -> tuple[float, float]:
         """Mean loss and hard-label accuracy over ``dataloader`` in one pass.
 
         Parameters
@@ -122,8 +124,8 @@ class PennyLaneLoop(BaseTrainingLoop):
             Evaluated with its current weights.
         dataloader : iterable or None
             Yields ``(X, y)`` batches. ``None`` returns ``(nan, nan)``.
-        loss_fn : callable, optional
-            Omit to skip the loss and return ``nan`` for it.
+        loss_fn : callable
+            Takes ``(preds, y)``.
 
         Returns
         -------
@@ -138,14 +140,10 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         for X_b, y_b in dataloader:
             preds = model.forward(X_b)
+            losses.append(float(loss_fn(preds, pnp.array(y_b, requires_grad=False))))
 
-            if loss_fn is not None:
-                y_target = pnp.array(y_b, requires_grad=False)
-                losses.append(float(loss_fn(preds, y_target)))
-
-            labels = _hard_labels(preds)
             y_true = y_b.astype(int).flatten()
-            correct += np.sum(labels == y_true)
+            correct += np.sum(_hard_labels(preds) == y_true)
             total += len(y_true)
 
         loss = float(np.mean(losses)) if losses else float("nan")

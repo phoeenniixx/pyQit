@@ -16,15 +16,18 @@ class BaseTrainingLoop(_PyQitObject):
     ----
     backend : str
         The ``pyqit.set_backend`` value this loop serves; the registry keys on it.
+
+    Attributes
+    ----------
+    reserved_backend_kwargs : tuple of str
+        Keys the loop derives from Trainer settings, so ``backend_kwargs`` may
+        not set them.
     rejects : tuple of str
         Trainer parameters this backend cannot honour. Passing one a non-default
         value raises.
     warns : tuple of str
         Trainer parameters this backend ignores but still trains correctly
         without. Passing one a non-default value warns.
-    reserved_backend_kwargs : tuple of str
-        Keys the loop derives from Trainer settings, so ``backend_kwargs`` may
-        not set them.
 
     Parameters
     ----------
@@ -37,10 +40,11 @@ class BaseTrainingLoop(_PyQitObject):
     _tags = {
         "object_type": "training_loop",
         "backend": None,
-        "rejects": (),
-        "warns": (),
-        "reserved_backend_kwargs": (),
     }
+
+    rejects: tuple[str, ...] = ()
+    warns: tuple[str, ...] = ()
+    reserved_backend_kwargs: tuple[str, ...] = ()
 
     def __init__(self, trainer, reporter):
         self.trainer = trainer
@@ -60,13 +64,13 @@ class BaseTrainingLoop(_PyQitObject):
         defaults = self.trainer.get_param_defaults()
         backend = self.get_tag("backend")
 
-        for param in self.get_tag("rejects") or ():
+        for param in self.rejects:
             if self._is_set(param, defaults):
                 raise ValueError(
                     f"Trainer({param}=...) is not supported on the {backend!r} backend."
                 )
 
-        for param in self.get_tag("warns") or ():
+        for param in self.warns:
             if self._is_set(param, defaults):
                 warnings.warn(
                     f"Trainer({param}=...) is ignored on the {backend!r} backend.",
@@ -77,7 +81,7 @@ class BaseTrainingLoop(_PyQitObject):
     def _resolve_backend_kwargs(self) -> dict:
         """``backend_kwargs`` after checking it sets no reserved key."""
         extra = dict(getattr(self.trainer, "backend_kwargs", None) or {})
-        reserved = set(self.get_tag("reserved_backend_kwargs") or ())
+        reserved = set(self.reserved_backend_kwargs)
         clashes = sorted(reserved & set(extra))
         if clashes:
             raise ValueError(

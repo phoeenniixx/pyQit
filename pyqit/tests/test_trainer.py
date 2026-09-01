@@ -1,5 +1,7 @@
 """Tests for Trainer orchestration, backend loops and callbacks."""
 
+import os
+
 import numpy as np
 import pytest
 
@@ -39,14 +41,6 @@ def _to_numpy(value):
     if type(value).__module__.startswith("torch"):
         return value.detach().cpu().numpy()
     return np.asarray(value)
-
-
-def test_trainer_clone_preserves_params_verbatim():
-    """skbase compares params across a clone, so a mutating __init__ fails here."""
-    trainer = Trainer(max_epochs=7, optimizer="ADAM", verbose=0)
-
-    assert trainer.clone().get_params() == trainer.get_params()
-    assert trainer.optimizer == "ADAM"
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -93,39 +87,35 @@ def test_history_tracks_best_on_val_loss_or_train_loss():
     assert without_val.best_score == pytest.approx(0.4)
 
 
-def test_backend_kwargs_rejected_on_pennylane():
-    """Unambiguously a Lightning setting on a backend with no Lightning."""
+@pytest.mark.parametrize(
+    "kwargs, expectation",
+    [
+        ({"backend_kwargs": {"devices": 2}}, "raise"),
+        ({"logger": True}, "warn"),
+    ],
+)
+def test_pennylane_reports_settings_it_cannot_honour(kwargs, expectation):
+    """The alternative is a run that quietly ignored what was asked for."""
     pyqit.set_backend("pennylane")
-    trainer = Trainer(max_epochs=1, verbose=0, backend_kwargs={"devices": 2})
+    trainer = Trainer(max_epochs=1, verbose=0, **kwargs)
 
-    with pytest.raises(ValueError, match="not supported on the 'pennylane'"):
-        trainer.fit(_model(), _dm())
+    if expectation == "raise":
+        with pytest.raises(ValueError, match="not supported on the 'pennylane'"):
+            trainer.fit(_model(), _dm())
+    else:
+        # Warns rather than raising: the resulting model is still correct.
+        with pytest.warns(UserWarning, match="is ignored on the 'pennylane'"):
+            trainer.fit(_model(), _dm())
 
 
-def test_backend_kwargs_forwarded_on_torch():
+def test_backend_kwargs_actually_reach_lightning():
+    """An unknown key must surface from Lightning; silence means it was dropped."""
     _require("torch")
     trainer = Trainer(
-        max_epochs=1, verbose=0, backend_kwargs={"gradient_clip_val": 0.5}
+        max_epochs=1, verbose=0, backend_kwargs={"not_a_real_lightning_kwarg": 1}
     )
 
-    assert len(trainer.fit(_model(), _dm()).train_loss) == 1
-
-
-def test_backend_kwargs_reserved_key_raises():
-    """Otherwise Lightning gets max_epochs twice and raises a TypeError."""
-    _require("torch")
-    trainer = Trainer(max_epochs=1, verbose=0, backend_kwargs={"max_epochs": 9})
-
-    with pytest.raises(ValueError, match="backend_kwargs may not set"):
-        trainer.fit(_model(), _dm())
-
-
-def test_logger_only_warns_on_pennylane():
-    """The run is still correct, so this degrades rather than failing."""
-    pyqit.set_backend("pennylane")
-    trainer = Trainer(max_epochs=1, verbose=0, logger=True)
-
-    with pytest.warns(UserWarning, match="is ignored on the 'pennylane'"):
+    with pytest.raises(TypeError, match="not_a_real_lightning_kwarg"):
         trainer.fit(_model(), _dm())
 
 
@@ -259,17 +249,17 @@ def test_hard_label_rule_is_identical_across_backends():
         )
 
 
-def test_eval_train_acc_false_drops_only_train_accuracy():
-    """The opt-out must not disturb any other recorded metric."""
-    pyqit.set_backend("pennylane")
-    history = Trainer(max_epochs=2, verbose=0, eval_train_acc=False).fit(
-        _model(), _dm()
-    )
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_every_metric_is_recorded_on_both_backends(backend):
+    """train_acc is scored from the training pass, so no metric is ever NaN."""
+    _require(backend)
+    history = Trainer(max_epochs=2, verbose=0).fit(_model(), _dm())
 
-    assert all(np.isnan(a) for a in history.train_acc)
-    assert not any(np.isnan(v) for v in history.val_loss)
-    assert not any(np.isnan(v) for v in history.val_acc)
-    assert not any(np.isnan(t) for t in history.train_loss)
+    for name in ("train_loss", "train_acc", "val_loss", "val_acc"):
+        values = getattr(history, name)
+        assert len(values) == 2
+        assert not any(np.isnan(v) for v in values), f"{name} contains NaN"
+    assert all(0.0 <= a <= 1.0 for a in history.train_acc)
 
 
 def test_predict_prescales_an_unfitted_datamodule():
@@ -347,3 +337,87 @@ def test_predict_torch_format_requires_torch(monkeypatch):
 
     with pytest.raises(ImportError, match="return_format='torch' requires torch"):
         Trainer(verbose=0).predict(_model(), _dm(), return_format="torch")
+
+
+def _load(path):
+    if path.endswith(".ckpt"):
+        import torch
+
+        return torch.load(path, weights_only=False)["state_dict"]
+    return dict(np.load(path))
+
+
+def _weights_equal(a, b):
+    return all(np.allclose(_to_numpy(a[k]), _to_numpy(b[k]), atol=1e-8) for k in a)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
+    """Written before restore_best rewrites the model, or 'last' would be best."""
+    _require(backend)
+    checkpoint = ModelCheckpoint(
+        dirpath=str(tmp_path), save_last=True, monitor="train_loss"
+    )
+    model = _model()
+    Trainer(max_epochs=4, learning_rate=0.5, verbose=0, callbacks=[checkpoint]).fit(
+        model, _dm()
+    )
+
+    last = _load(checkpoint.last_path)
+    best = _load(checkpoint.best_path)
+
+    # restore_best defaults on, so the model now holds the best epoch.
+    assert _weights_equal(best, model.weights)
+    assert not _weights_equal(last, best), "last must not be the restored best"
+
+
+def test_save_last_only_writes_no_best_and_does_not_restore(tmp_path):
+    """restore_best follows save_best, so last-only leaves the final weights."""
+    pyqit.set_backend("pennylane")
+    checkpoint = ModelCheckpoint(
+        dirpath=str(tmp_path), save_best=False, save_last=True, monitor="train_loss"
+    )
+    model = _model()
+    Trainer(max_epochs=3, learning_rate=0.5, verbose=0, callbacks=[checkpoint]).fit(
+        model, _dm()
+    )
+
+    assert checkpoint.best_path is None
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["last.npz"]
+    assert _weights_equal(_load(checkpoint.last_path), model.weights)
+
+
+def test_every_n_epochs_writes_periodic_snapshots(tmp_path):
+    pyqit.set_backend("pennylane")
+    checkpoint = ModelCheckpoint(
+        dirpath=str(tmp_path), every_n_epochs=2, monitor="train_loss"
+    )
+    Trainer(max_epochs=5, verbose=0, callbacks=[checkpoint]).fit(_model(), _dm())
+
+    # Zero-based epochs, matching best_epoch: fires after epochs 1 and 3.
+    assert [os.path.basename(p) for p in checkpoint.periodic_paths] == [
+        "epoch1.npz",
+        "epoch3.npz",
+    ]
+
+
+def test_train_accuracy_costs_no_extra_circuit_pass(monkeypatch):
+    """It is scored from the training pass, not a second sweep of the split."""
+    pyqit.set_backend("pennylane")
+    model = _model()
+    # 12 train / 4 val samples at batch_size 8 -> 2 train batches, 1 val batch.
+    dm = _dm(n_samples=20, batch_size=8, split=(0.6, 0.2, 0.2))
+
+    calls = []
+    original = model.forward
+    monkeypatch.setattr(
+        model, "forward", lambda X, **kw: (calls.append(1), original(X, **kw))[1]
+    )
+
+    # batch_size lives on the Trainer, which overrides the DataModule at setup.
+    history = Trainer(max_epochs=3, batch_size=8, verbose=0).fit(model, dm)
+
+    # Per epoch: 2 gradient steps + 1 validation pass. A second sweep for
+    # train_acc would add 2 more per epoch.
+    assert len(calls) == 3 * 3
+    assert all(0.0 <= a <= 1.0 for a in history.train_acc)

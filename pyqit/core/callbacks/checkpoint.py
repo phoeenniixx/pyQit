@@ -89,8 +89,6 @@ class ModelCheckpoint(BaseCallback):
         self.restore_best = restore_best
         super().__init__()
 
-        # Defaulted here rather than in the signature so the stored parameter
-        # stays exactly what the caller passed, per skbase's clone contract.
         self._restore_best = save_best if restore_best is None else restore_best
 
         if not (save_best or save_last or every_n_epochs) and not self._restore_best:
@@ -162,8 +160,6 @@ class ModelCheckpoint(BaseCallback):
 
     def on_fit_end(self, state: LoopState) -> None:
         """Write the requested files, then restore the best weights."""
-        # Before the restore below, or the "last" file would hold the best
-        # epoch's weights rather than the final epoch's.
         if self.save_last:
             self.last_path = self._write(
                 state.model, _snapshot_weights(state.model), "last"

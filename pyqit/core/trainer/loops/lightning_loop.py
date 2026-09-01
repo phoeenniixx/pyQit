@@ -14,22 +14,17 @@ class LightningLoop(BaseTrainingLoop):
     hooks.
     """
 
-    _tags = {
-        "object_type": "training_loop",
-        "backend": "torch",
-        "rejects": (),
-        "warns": (),
-        # Derived from Trainer settings below.
-        "reserved_backend_kwargs": (
-            "max_epochs",
-            "callbacks",
-            "logger",
-            "enable_checkpointing",
-            "enable_progress_bar",
-            "enable_model_summary",
-            "limit_val_batches",
-        ),
-    }
+    _tags = {"backend": "torch"}
+
+    # Derived from Trainer settings in fit().
+    reserved_backend_kwargs = (
+        "max_epochs",
+        "callbacks",
+        "logger",
+        "enable_checkpointing",
+        "enable_progress_bar",
+        "limit_val_batches",
+    )
 
     DEFAULT_ACCELERATOR = "cpu"
 
@@ -58,6 +53,7 @@ class LightningLoop(BaseTrainingLoop):
         trainer = self.trainer
         extra = self._resolve_backend_kwargs()
         extra.setdefault("accelerator", self.DEFAULT_ACCELERATOR)
+        extra.setdefault("enable_model_summary", False)
 
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(
@@ -75,7 +71,6 @@ class LightningLoop(BaseTrainingLoop):
                 callbacks=[_PyQitCallbackShim(callbacks, state)],
                 logger=trainer.logger,
                 enable_progress_bar=(self.reporter.verbose >= 1),
-                enable_model_summary=False,
                 # pyqit's ModelCheckpoint owns checkpointing on both backends;
                 # leaving this on would write the run out twice.
                 enable_checkpointing=False,

@@ -64,12 +64,10 @@ class TrainingHistory:
 
         score, metric = (
             (val_loss, "val_loss")
-            if val_loss == val_loss  # NaN is the only value failing this
+            if val_loss == val_loss
             else (train_loss, "train_loss")
         )
         if metric != self.best_metric:
-            # A split appearing or vanishing mid-run makes the running best
-            # incomparable; restart it against the metric now in use.
             self.best_metric = metric
             self.best_score = float("inf")
         if score < self.best_score:

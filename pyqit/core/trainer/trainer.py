@@ -56,10 +56,6 @@ class Trainer(_PyQitObject):
         Run the barren-plateau gradient-variance check before training.
     bp_samples : int, default 200
         Gradient samples drawn by that check.
-    eval_train_acc : bool, default True
-        Evaluate training accuracy each epoch on the pennylane backend, at the
-        cost of a full extra forward pass over the training split. Ignored on
-        torch, where the metric comes free from the training batches.
     backend_kwargs : dict, optional
         Forwarded verbatim to ``lightning.pytorch.Trainer`` on the torch
         backend. Rejected on pennylane, which has no underlying trainer.
@@ -84,7 +80,6 @@ class Trainer(_PyQitObject):
         logger: bool | object = False,
         check_bp: bool = False,
         bp_samples: int = 200,
-        eval_train_acc: bool = True,
         backend_kwargs: dict | None = None,
     ):
         self.max_epochs = max_epochs
@@ -100,12 +95,9 @@ class Trainer(_PyQitObject):
         self.logger = logger
         self.check_bp = check_bp
         self.bp_samples = bp_samples
-        self.eval_train_acc = eval_train_acc
         self.backend_kwargs = backend_kwargs
         super().__init__()
 
-        # Cached at construction, like every other pyqit object: setting the
-        # backend after building a Trainer does not retarget it.
         self.backend = get_backend()
         self._print_summary = True
 
@@ -132,8 +124,7 @@ class Trainer(_PyQitObject):
             max_epochs=self.max_epochs,
             show_summary=self._print_summary,
         )
-        # Built before any data is touched: constructing the loop validates this
-        # Trainer's settings against what the backend can honour.
+
         loop = get_training_loop(self.backend, trainer=self, reporter=reporter)
 
         self._setup_data(model, datamodule, stage="fit")
