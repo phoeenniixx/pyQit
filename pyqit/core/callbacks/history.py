@@ -1,4 +1,4 @@
-"""Records per-epoch metrics into a :class:`TrainingHistory`."""
+"""Callback recording per-epoch metrics into a ``TrainingHistory``."""
 
 from pyqit.core.callbacks.base import BaseCallback, LoopState
 
@@ -7,14 +7,13 @@ class HistoryCallback(BaseCallback):
     """Copy each epoch's metrics into a ``TrainingHistory``.
 
     Both loops install this, so ``history`` is filled by the same code path on
-    either backend rather than by an inline ``record`` call on one and a
-    Lightning callback on the other.
+    either backend.
 
     Parameters
     ----------
     history_obj : TrainingHistory
-        The object to append to. Supplied by the Trainer, which owns it and
-        returns it from ``fit``.
+        The object to append to. Supplied by the Trainer, which returns it
+        from ``fit``.
     """
 
     def __init__(self, history_obj):
@@ -23,9 +22,11 @@ class HistoryCallback(BaseCallback):
 
     @property
     def history(self):
+        """The ``TrainingHistory`` being filled."""
         return self.history_obj
 
     def on_epoch_end(self, state: LoopState) -> None:
+        """Record this epoch's metrics."""
         m = state.metrics
         self.history_obj.record(
             epoch=state.epoch,

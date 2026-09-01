@@ -22,22 +22,15 @@ class PennyLaneLoop(BaseTrainingLoop):
     _tags = {
         "object_type": "training_loop",
         "backend": "pennylane",
-        "rejects": {
-            "backend_kwargs": (
-                "backend_kwargs is forwarded verbatim to lightning.Trainer, and "
-                "this backend has no Lightning trainer to forward it to."
-            ),
-        },
-        "warns": {
-            "logger": (
-                "Lightning loggers are not used here; per-epoch metrics are "
-                "returned in the TrainingHistory from Trainer.fit instead."
-            ),
-        },
+        # backend_kwargs targets lightning.pytorch.Trainer; there is none here.
+        "rejects": ("backend_kwargs",),
+        # Metrics are returned in the TrainingHistory instead.
+        "warns": ("logger",),
         "reserved_backend_kwargs": (),
     }
 
-    def fit(self, model, datamodule, state, callbacks) -> None:
+    def fit(self, model, datamodule, state, callbacks: list) -> None:
+        """Train ``model`` with a ``qml`` optimizer. See ``BaseTrainingLoop.fit``."""
         trainer = self.trainer
         loss_fn = get_loss_fn(trainer.loss_fn, backend="pennylane")
 
@@ -48,8 +41,7 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         train_loader = datamodule.train_loader(shuffle=True)
         val_loader = datamodule.val_loader(shuffle=False)
-        # Built once: the loader is re-iterable and shuffle=False makes it
-        # identical every epoch, so rebuilding it per epoch bought nothing.
+        # Built once: shuffle=False makes it identical every epoch.
         train_eval_loader = (
             datamodule.train_loader(shuffle=False) if trainer.eval_train_acc else None
         )
@@ -111,6 +103,11 @@ class PennyLaneLoop(BaseTrainingLoop):
 
     @staticmethod
     def _make_optimizer(trainer):
+        """The ``qml`` optimizer named by ``trainer.optimizer``.
+
+        The name is case-folded here rather than in ``Trainer.__init__``, which
+        must store its arguments verbatim for skbase's ``get_params``/``clone``.
+        """
         name = trainer.optimizer
         name = name.lower() if isinstance(name, str) else name
         if name == "adam":
@@ -121,10 +118,19 @@ class PennyLaneLoop(BaseTrainingLoop):
     def _evaluate(model, dataloader, loss_fn=None) -> tuple[float, float]:
         """Mean loss and hard-label accuracy over ``dataloader`` in one pass.
 
-        Loss and accuracy used to be two methods that each iterated the loader
-        and ran their own forward pass over it. On a backend where the circuit
-        evaluation dominates, that doubled the cost of every evaluated split to
-        produce two numbers from the same predictions.
+        Parameters
+        ----------
+        model : BaseModel
+            Evaluated with its current weights.
+        dataloader : iterable or None
+            Yields ``(X, y)`` batches. ``None`` returns ``(nan, nan)``.
+        loss_fn : callable, optional
+            Omit to skip the loss and return ``nan`` for it.
+
+        Returns
+        -------
+        tuple of (float, float)
+            Mean loss and accuracy.
         """
         if dataloader is None:
             return float("nan"), float("nan")

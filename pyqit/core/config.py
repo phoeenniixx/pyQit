@@ -12,10 +12,33 @@ _WARNED_UNSET: ContextVar[bool] = ContextVar("warned_unset", default=False)
 
 
 def set_backend(backend: str):
-    """Set the quantum computing backend for the current context."""
+    """Set the quantum computing backend for the current context.
+
+    Parameters
+    ----------
+    backend : {"pennylane", "torch"}
+        Backend every object built afterwards will cache in ``__init__``.
+
+    Raises
+    ------
+    ValueError
+        If ``backend`` is not a supported name.
+    ImportError
+        If ``backend`` is ``"torch"`` and torch is not installed. Checked here
+        because this is where the choice is made: every torch import downstream
+        is reached only through the backend being set, so without this the
+        failure surfaces later and unrecognisably.
+    """
     backend = backend.lower()
     if backend not in ["pennylane", "torch"]:
         raise ValueError(f"Unsupported backend '{backend}'.")
+
+    if backend == "torch" and not _check_soft_dependencies("torch", severity="none"):
+        raise ImportError(
+            "backend='torch' requires torch, which is not installed. "
+            "Install it with `pip install pyqit[all_extras]`, or stay on "
+            "backend='pennylane'."
+        )
 
     _BACKEND.set(backend)
     _EXPLICITLY_SET.set(True)

@@ -1,4 +1,4 @@
-"""Best-weight tracking, saving and restoring, shared by both backends."""
+"""Callback tracking, saving and restoring the best epoch's weights."""
 
 import os
 
@@ -11,11 +11,6 @@ from pyqit.utils.utils import _is_torch, _restore_weights, _snapshot_weights
 class ModelCheckpoint(BaseCallback):
     """Track the best epoch, save its weights, and optionally restore them.
 
-    The *policy* here is backend-neutral; only serialization forks, because a
-    torch user expects a ``.ckpt`` holding a ``state_dict`` and a pennylane user
-    expects an ``.npz``. Keys are ``model.weights`` keys on both, so a
-    checkpoint written on one backend names its arrays the same way as the other.
-
     Parameters
     ----------
     dirpath : str, optional
@@ -25,14 +20,23 @@ class ModelCheckpoint(BaseCallback):
     monitor : str, optional
         Metric to track. ``None`` picks ``"val_loss"`` when a validation split
         produced a finite value and ``"train_loss"`` otherwise, so a run without
-        a validation split still checkpoints instead of silently saving nothing.
+        a validation split still checkpoints.
     mode : {"min", "max"}, default "min"
+        Whether a lower or higher value of ``monitor`` is better.
     save_on_improve : bool, default False
-        When False the file is written once, after training, since the best
-        weights are already held in memory for the restore. Set True to write on
-        every improvement, which costs extra I/O but survives a crash mid-run.
+        When False the file is written once, after training. Set True to write
+        on every improvement, which costs extra I/O but survives a crash.
     restore_best : bool, default True
         Load the best weights back into the model when training ends.
+
+    Attributes
+    ----------
+    best_score : float
+        Best value of ``monitor`` seen.
+    best_epoch : int
+        Epoch it was seen on, or ``-1``.
+    best_path : str or None
+        Path written to, once anything has been written.
     """
 
     def __init__(
@@ -68,6 +72,7 @@ class ModelCheckpoint(BaseCallback):
         )
 
     def _resolve_monitor(self, metrics: dict) -> str:
+        """The metric to track, chosen once on the first epoch."""
         if self._monitor is not None:
             return self._monitor
         val = metrics.get("val_loss", float("nan"))
@@ -75,6 +80,7 @@ class ModelCheckpoint(BaseCallback):
         return self._monitor
 
     def on_epoch_end(self, state: LoopState) -> None:
+        """Snapshot the weights if this epoch improved on the best so far."""
         monitor = self._resolve_monitor(state.metrics)
         if monitor not in state.metrics:
             raise KeyError(
@@ -98,6 +104,7 @@ class ModelCheckpoint(BaseCallback):
             )
 
     def on_fit_end(self, state: LoopState) -> None:
+        """Write the best weights out and restore them into the model."""
         weights = self._best_weights or _snapshot_weights(state.model)
 
         if not self.save_on_improve:
@@ -112,6 +119,7 @@ class ModelCheckpoint(BaseCallback):
             )
 
     def _write(self, model, weights: dict) -> str:
+        """Serialize ``weights`` in the active backend's format; return the path."""
         directory = self.dirpath or "checkpoints"
         os.makedirs(directory, exist_ok=True)
         torch_backend = any(_is_torch(v) for v in model.weights.values())

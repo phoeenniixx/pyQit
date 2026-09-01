@@ -1,4 +1,4 @@
-"""Stop training once a monitored metric stops improving."""
+"""Callback stopping training once a monitored metric stops improving."""
 
 import numpy as np
 
@@ -14,29 +14,28 @@ class EarlyStopping(BaseCallback):
         Metric to watch. ``None`` picks ``"val_loss"`` when a validation split
         produced a finite value and ``"train_loss"`` otherwise.
     patience : int, default 5
-        Epochs without improvement to tolerate before stopping. Counted the way
-        ``lightning.pytorch.callbacks.EarlyStopping`` counts it (stop once the
-        wait reaches ``patience``), so a given ``patience`` means the same
-        number of epochs here as it does in Lightning.
+        Epochs without improvement to tolerate. Counted the way
+        ``lightning.pytorch.callbacks.EarlyStopping`` counts it, so a given
+        value means the same number of epochs in both frameworks.
     min_delta : float, default 0.0
         Improvement smaller than this does not count as an improvement.
     mode : {"min", "max"}, default "min"
+        Whether a lower or higher value of ``monitor`` is better.
     check_finite : bool, default True
-        Stop as soon as the monitored metric is NaN or infinite. Matches
-        Lightning's default, and matters on a quantum model because a diverged
-        circuit yields NaN rather than a large loss.
+        Stop as soon as the monitored metric is NaN or infinite. Matters on a
+        quantum model because a diverged circuit yields NaN rather than a large
+        loss, and NaN never trips the patience counter.
     verbose : bool, default True
         Announce the stop through the run's reporter.
 
-    Notes
-    -----
-    The stop takes effect at the end of an epoch, never mid-epoch, so both
-    backends end on the same boundary. ``on_fit_end`` still runs, which is what
-    lets a ``ModelCheckpoint`` installed alongside restore the best weights.
-
-    This is a deliberate reimplementation rather than a wrapper: pennylane ships
-    no callback or early-stopping machinery of any kind, so Lightning's version
-    could only ever have covered one of the two backends.
+    Attributes
+    ----------
+    stopped_epoch : int or None
+        Epoch the stop was requested on, or None if it never was.
+    stopping_reason : str or None
+        Human-readable reason for the stop.
+    best_score : float
+        Best value of ``monitor`` seen.
     """
 
     def __init__(
@@ -67,6 +66,7 @@ class EarlyStopping(BaseCallback):
         self._wait = 0
 
     def _resolve_monitor(self, metrics: dict) -> str:
+        """The metric to watch, chosen once on the first epoch."""
         if self._monitor is not None:
             return self._monitor
         val = metrics.get("val_loss", float("nan"))
@@ -81,6 +81,7 @@ class EarlyStopping(BaseCallback):
         return score > self.best_score + self.min_delta
 
     def on_epoch_end(self, state: LoopState) -> None:
+        """Update the wait counter and stop the run if patience ran out."""
         monitor = self._resolve_monitor(state.metrics)
         if monitor not in state.metrics:
             raise KeyError(
@@ -100,9 +101,7 @@ class EarlyStopping(BaseCallback):
             return
 
         self._wait += 1
-        # ``>=``, not ``>``: Lightning stops once the wait *reaches* patience, and
-        # a patience meaning a different number of epochs in each framework is a
-        # difference nobody would think to check for.
+        # ``>=``, matching Lightning, which stops once the wait reaches patience.
         if self._wait >= self.patience:
             self._stop(
                 state,

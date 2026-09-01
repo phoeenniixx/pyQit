@@ -1,12 +1,4 @@
-"""Backend -> training loop lookup.
-
-Built from the ``backend`` tag by ``all_objects``, the same way losses are
-registered: a loop is available because it exists in an importable module with
-the right tag, not because anything hand-registers it.
-
-Caveat inherited from skbase's walk: a loop defined in a module whose name
-starts with ``_`` is silently never discovered. Keep loop modules public.
-"""
+"""Backend -> training loop lookup, keyed on each loop's ``backend`` tag."""
 
 from pyqit.base.base_object import all_objects
 
@@ -30,7 +22,26 @@ def get_training_loop(backend: str, trainer, reporter):
 
     Constructing it validates the Trainer's settings against the loop's
     ``rejects`` / ``warns`` tags, so an unsupported setting is caught before any
-    data is touched rather than partway through a fit.
+    data is touched.
+
+    Parameters
+    ----------
+    backend : str
+        Backend name, as returned by ``get_backend()``.
+    trainer : Trainer
+        Passed to the loop and validated against it.
+    reporter : Reporter
+        Console output for the run.
+
+    Returns
+    -------
+    BaseTrainingLoop
+        A loop instance bound to ``trainer``.
+
+    Raises
+    ------
+    ValueError
+        If no loop declares ``backend``.
     """
     registry = loop_registry()
     if backend not in registry:

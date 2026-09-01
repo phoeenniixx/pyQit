@@ -1,14 +1,4 @@
-"""Base class for backend training loops.
-
-A loop owns one backend's fitting mechanics and nothing else: the Trainer has
-already seeded, set the DataModule up, printed the summary and run the
-diagnostic before a loop is asked to do anything.
-
-Which Trainer settings a backend cannot honour is declared through the
-``rejects`` and ``warns`` tags rather than through control flow inside ``fit``,
-for the same reason losses declare ``backends``: the policy is then visible on
-the class, and a new backend declares its own instead of editing shared code.
-"""
+"""Base class for backend training loops."""
 
 from abc import abstractmethod
 import warnings
@@ -19,27 +9,36 @@ from pyqit.base.base_object import _PyQitObject
 class BaseTrainingLoop(_PyQitObject):
     """One backend's fit mechanics.
 
+    The Trainer has already seeded, set the DataModule up, printed the summary
+    and run any diagnostic before a loop is asked to do anything.
+
     Tags
     ----
     backend : str
-        The ``pyqit.set_backend`` value this loop serves. The registry keys on it.
-    rejects : dict of {str: str}
-        Trainer parameters this backend cannot honour at all. Passing one a
-        non-default value raises, because the alternative is a run that quietly
-        ignored what the user asked for.
-    warns : dict of {str: str}
-        Parameters this backend degrades on but still trains correctly under.
-        These warn rather than raise, since the resulting model is still valid.
+        The ``pyqit.set_backend`` value this loop serves; the registry keys on it.
+    rejects : tuple of str
+        Trainer parameters this backend cannot honour. Passing one a non-default
+        value raises.
+    warns : tuple of str
+        Trainer parameters this backend ignores but still trains correctly
+        without. Passing one a non-default value warns.
     reserved_backend_kwargs : tuple of str
-        Keys the loop derives from Trainer settings and therefore refuses to let
-        ``backend_kwargs`` overwrite.
+        Keys the loop derives from Trainer settings, so ``backend_kwargs`` may
+        not set them.
+
+    Parameters
+    ----------
+    trainer : Trainer
+        The Trainer whose settings this loop runs under.
+    reporter : Reporter
+        Console output for the run.
     """
 
     _tags = {
         "object_type": "training_loop",
         "backend": None,
-        "rejects": {},
-        "warns": {},
+        "rejects": (),
+        "warns": (),
         "reserved_backend_kwargs": (),
     }
 
@@ -51,34 +50,26 @@ class BaseTrainingLoop(_PyQitObject):
         self._validate_config()
 
     def _is_set(self, param: str, defaults: dict) -> bool:
-        """Whether the user moved ``param`` off its default.
-
-        Comparing against the default rather than against ``None`` means a
-        backend only complains about settings that were actually asked for, so
-        constructing a Trainer with defaults is never noisy.
-        """
+        """Whether the user moved ``param`` off its constructor default."""
         if not hasattr(self.trainer, param):
             return False
         return getattr(self.trainer, param) != defaults.get(param)
 
     def _validate_config(self) -> None:
-        # skbase already derives these from the constructor signature; deriving
-        # them again with inspect would also force an import of Trainer here.
+        """Raise or warn on Trainer settings this backend cannot honour."""
         defaults = self.trainer.get_param_defaults()
         backend = self.get_tag("backend")
 
-        for param, reason in (self.get_tag("rejects") or {}).items():
+        for param in self.get_tag("rejects") or ():
             if self._is_set(param, defaults):
                 raise ValueError(
-                    f"Trainer({param}=...) is not supported on the {backend!r} "
-                    f"backend. {reason}"
+                    f"Trainer({param}=...) is not supported on the {backend!r} backend."
                 )
 
-        for param, reason in (self.get_tag("warns") or {}).items():
+        for param in self.get_tag("warns") or ():
             if self._is_set(param, defaults):
                 warnings.warn(
-                    f"Trainer({param}=...) is only partly honoured on the "
-                    f"{backend!r} backend. {reason}",
+                    f"Trainer({param}=...) is ignored on the {backend!r} backend.",
                     UserWarning,
                     # _validate_config -> __init__ -> get_training_loop ->
                     # Trainer.fit -> the caller, who is the one to point at.
@@ -86,7 +77,7 @@ class BaseTrainingLoop(_PyQitObject):
                 )
 
     def _resolve_backend_kwargs(self) -> dict:
-        """``backend_kwargs`` after checking it does not fight the Trainer."""
+        """``backend_kwargs`` after checking it sets no reserved key."""
         extra = dict(getattr(self.trainer, "backend_kwargs", None) or {})
         reserved = set(self.get_tag("reserved_backend_kwargs") or ())
         clashes = sorted(reserved & set(extra))
@@ -99,13 +90,27 @@ class BaseTrainingLoop(_PyQitObject):
         return extra
 
     @staticmethod
-    def _emit(callbacks, hook: str, state) -> None:
+    def _emit(callbacks: list, hook: str, state) -> None:
+        """Call ``hook`` on every callback with ``state``."""
         for callback in callbacks:
             getattr(callback, hook)(state)
 
     @abstractmethod
-    def fit(self, model, datamodule, state, callbacks) -> None:
-        """Train ``model``, calling ``callbacks`` on the shared hooks."""
+    def fit(self, model, datamodule, state, callbacks: list) -> None:
+        """Train ``model``, calling ``callbacks`` on the shared hooks.
+
+        Parameters
+        ----------
+        model : BaseModel
+            The model to train, mutated in place.
+        datamodule : DataModule
+            Already set up by the Trainer.
+        state : LoopState
+            Shared state; the loop fills ``epoch`` and ``metrics`` each epoch
+            and honours ``stop``.
+        callbacks : list of BaseCallback
+            Fired on ``on_fit_start``, ``on_epoch_end`` and ``on_fit_end``.
+        """
 
     @classmethod
     def get_test_params(cls):

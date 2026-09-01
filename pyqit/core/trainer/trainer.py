@@ -1,11 +1,11 @@
-"""The Trainer: configuration, orchestration, and backend dispatch."""
+"""The Trainer: configuration, orchestration and backend dispatch."""
 
 from collections.abc import Callable
 import logging
 
 import numpy as np
-import pennylane.numpy as pnp
 from skbase.base import BaseMetaObject
+from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.base.base_object import _PyQitObject
 from pyqit.core.callbacks import HistoryCallback, LoopState, ModelCheckpoint
@@ -20,19 +20,13 @@ from pyqit.models.base.base import BaseModel
 class Trainer(_PyQitObject):
     """Orchestrates a training run and dispatches it to a backend loop.
 
-    The Trainer itself trains nothing. It seeds, sets the DataModule up, prints
+    The Trainer trains nothing itself. It seeds, sets the DataModule up, prints
     the run summary, optionally runs the barren-plateau pre-flight, assembles
     the callback list, and hands off to the loop registered for the active
     backend.
 
-    Its parameters are the ones that mean the same thing on every backend.
-    Anything backend-specific goes through ``backend_kwargs``, which the torch
-    loop forwards verbatim to ``lightning.pytorch.Trainer``. Mirroring
-    Lightning's own constructor here was considered and rejected: Lightning
-    carries roughly forty parameters of which a pennylane optimizer loop can
-    honour under a quarter, and it deliberately holds none of ``learning_rate``,
-    ``optimizer``, ``loss_fn`` or ``batch_size``, which live on its
-    LightningModule and DataModule instead.
+    Its parameters are the ones that mean the same thing on every backend;
+    anything backend-specific goes through ``backend_kwargs``.
 
     Parameters
     ----------
@@ -44,8 +38,7 @@ class Trainer(_PyQitObject):
     loss_fn : str or callable, default "mse"
         A name from ``loss_registry()``, or a callable taking ``(preds, y)``.
     callbacks : list of BaseCallback, optional
-        Run on both backends. Lightning callbacks are not accepted here; see
-        ``pyqit.core.callbacks``.
+        Run on both backends. Lightning callbacks are not accepted.
     verbose : {0, 1, 2}, default 2
         ``0`` silent, ``1`` progress only, ``2`` progress plus the model table.
     seed : int, optional
@@ -53,27 +46,23 @@ class Trainer(_PyQitObject):
         construction, so reproducing them needs ``pyqit.set_seed`` before the
         model is built; this covers training and diagnostics only.
     enable_checkpointing : bool, default False
-        Installs a default ``ModelCheckpoint``. For any non-default policy,
-        pass your own through ``callbacks`` instead.
+        Installs a default ``ModelCheckpoint``. For any other policy, pass your
+        own through ``callbacks``.
     checkpoint_dir : str, optional
         Directory for the default checkpoint. Defaults to ``"checkpoints"``.
     logger : bool or object, default False
-        Forwarded to Lightning on the torch backend. The pennylane backend has
-        no logger and warns if this is set.
+        Forwarded to Lightning on the torch backend; ignored on pennylane.
     check_bp : bool, default False
         Run the barren-plateau gradient-variance check before training.
     bp_samples : int, default 200
+        Gradient samples drawn by that check.
     eval_train_acc : bool, default True
-        Evaluate training accuracy each epoch on the pennylane backend. This
-        costs a full extra forward pass over the training split per epoch, which
-        on a circuit-bound backend is a large fraction of the epoch; set False
-        to trade the ``train_acc`` history for the speed. Ignored on torch,
-        where training accuracy comes free from the training batches.
+        Evaluate training accuracy each epoch on the pennylane backend, at the
+        cost of a full extra forward pass over the training split. Ignored on
+        torch, where the metric comes free from the training batches.
     backend_kwargs : dict, optional
-        Forwarded verbatim to the backend's underlying trainer. On torch that is
-        ``lightning.pytorch.Trainer`` (so ``{"accelerator": "gpu"}``,
-        ``{"gradient_clip_val": 0.5}``, and anything else Lightning accepts).
-        The pennylane backend has no underlying trainer and raises if this is set.
+        Forwarded verbatim to ``lightning.pytorch.Trainer`` on the torch
+        backend. Rejected on pennylane, which has no underlying trainer.
     """
 
     _tags = {
@@ -115,13 +104,26 @@ class Trainer(_PyQitObject):
         self.backend_kwargs = backend_kwargs
         super().__init__()
 
-        # Cached at construction, matching every other pyqit object: setting the
+        # Cached at construction, like every other pyqit object: setting the
         # backend after building a Trainer does not retarget it.
         self.backend = get_backend()
         self._print_summary = True
 
     def fit(self, model: BaseModel, datamodule: DataModule) -> TrainingHistory:
-        """Train ``model`` on ``datamodule`` and return the epoch history."""
+        """Train ``model`` on ``datamodule``.
+
+        Parameters
+        ----------
+        model : BaseModel
+            Trained in place.
+        datamodule : DataModule
+            Set up here if it is not already.
+
+        Returns
+        -------
+        TrainingHistory
+            Per-epoch losses, accuracies and timings.
+        """
         if self.seed is not None:
             set_seed(self.seed)
 
@@ -131,16 +133,10 @@ class Trainer(_PyQitObject):
             show_summary=self._print_summary,
         )
         # Built before any data is touched: constructing the loop validates this
-        # Trainer's settings against what the backend can honour, and an
-        # unsupported setting should fail before a split or a fit is run.
+        # Trainer's settings against what the backend can honour.
         loop = get_training_loop(self.backend, trainer=self, reporter=reporter)
 
-        datamodule.setup(
-            stage="fit",
-            batch_size=self.batch_size,
-            n_qubits=getattr(model, "n_qubits", None),
-            encoder=self._encoder_class(model),
-        )
+        self._setup_data(model, datamodule, stage="fit")
 
         if self._print_summary:
             if self.verbose >= 2:
@@ -166,13 +162,68 @@ class Trainer(_PyQitObject):
         loop.fit(model, datamodule, state, callbacks)
         return history
 
+    def predict(
+        self,
+        model: BaseModel | BaseMetaObject,
+        datamodule: DataModule,
+        return_format: str = "auto",
+    ) -> np.ndarray:
+        """Run ``model`` over the most specific split ``datamodule`` holds.
+
+        Parameters
+        ----------
+        model : BaseModel or BaseMetaObject
+            Used for inference only; weights are not touched.
+        datamodule : DataModule
+            Test split if present, else validation, else train.
+        return_format : {"auto", "numpy", "torch"}, default "auto"
+            ``"auto"`` follows whatever the model emits.
+
+        Returns
+        -------
+        numpy.ndarray or torch.Tensor
+            Predictions for every sample in the chosen split.
+        """
+        import pennylane.numpy as pnp
+
+        self._setup_data(model, datamodule, stage="predict")
+
+        loader = self._predict_loader(datamodule)
+        all_preds = []
+
+        with self._inference_context():
+            for X_batch, _ in loader:
+                if self.backend == "pennylane":
+                    X_batch = pnp.array(X_batch, requires_grad=False)
+                all_preds.append(model.predict_step(X_batch))
+
+        if not all_preds:
+            return np.array([])
+
+        return self._collect(all_preds, return_format)
+
+    def _setup_data(self, model, datamodule: DataModule, stage: str) -> None:
+        """Set the DataModule up with the shaping ``model`` implies.
+
+        ``fit`` and ``predict`` share this so they cannot disagree about the
+        encoder, which drives quantum prescaling: omitting it leaves inputs
+        unscaled without raising. ``setup`` is idempotent, so calling this on an
+        already-set-up DataModule only re-applies ``batch_size``.
+        """
+        datamodule.setup(
+            stage=stage,
+            batch_size=self.batch_size,
+            n_qubits=getattr(model, "n_qubits", None),
+            encoder=self._encoder_class(model),
+        )
+
     def _build_callbacks(self, history: TrainingHistory) -> list:
         """Built-ins first, then the user's.
 
-        ``HistoryCallback`` leads so that anything downstream reading
+        ``HistoryCallback`` leads so anything downstream reading
         ``state.history`` sees the current epoch already recorded, and the
         checkpoint precedes user callbacks so a user callback observing
-        ``on_fit_end`` sees the restored weights rather than the last ones.
+        ``on_fit_end`` sees the restored weights.
         """
         callbacks = [HistoryCallback(history)]
         if self.enable_checkpointing:
@@ -181,10 +232,10 @@ class Trainer(_PyQitObject):
         return callbacks
 
     @staticmethod
-    def _encoder_class(model):
+    def _encoder_class(model) -> type | None:
         """The embedding class that drives prescaling, or None.
 
-        Reads the public ``embedding_obj``; a mismatch here silently disables
+        Reads the public ``embedding_obj``; a mismatch silently disables
         prescaling rather than raising, so the name must stay in step with
         ``QuantumPipeline`` and the model classes.
         """
@@ -209,36 +260,9 @@ class Trainer(_PyQitObject):
                 "Barren Plateau detected! Gradient variance is critically low."
             )
 
-    def predict(
-        self,
-        model: BaseModel | BaseMetaObject,
-        datamodule: DataModule,
-        return_format: str = "auto",
-    ) -> np.ndarray:
-        """Run ``model`` over the most specific split ``datamodule`` holds."""
-        if not datamodule._is_setup:
-            datamodule.setup(
-                stage="predict",
-                batch_size=self.batch_size,
-                n_qubits=getattr(model, "n_qubits", None),
-            )
-
-        loader = self._predict_loader(datamodule)
-        all_preds = []
-
-        with self._inference_context():
-            for X_batch, _ in loader:
-                if self.backend == "pennylane":
-                    X_batch = pnp.array(X_batch, requires_grad=False)
-                all_preds.append(model.predict_step(X_batch))
-
-        if not all_preds:
-            return np.array([])
-
-        return self._collect(all_preds, return_format)
-
     @staticmethod
     def _predict_loader(datamodule: DataModule):
+        """The most specific split's loader: test, else val, else train."""
         if datamodule.X_test is not None:
             return datamodule.test_loader(shuffle=False)
         if datamodule.X_val is not None:
@@ -246,17 +270,19 @@ class Trainer(_PyQitObject):
         return datamodule.train_loader(shuffle=False)
 
     def _inference_context(self):
+        """A no-grad context on torch, a null context elsewhere."""
+        from contextlib import nullcontext
+
         if self.backend == "torch":
             import torch
 
             return torch.no_grad()
 
-        from contextlib import nullcontext
-
         return nullcontext()
 
     @staticmethod
     def _collect(all_preds: list, return_format: str):
+        """Concatenate per-batch predictions into one array of ``return_format``."""
         from pyqit.utils.utils import _is_torch
 
         target = return_format
@@ -264,6 +290,12 @@ class Trainer(_PyQitObject):
             target = "torch" if _is_torch(all_preds[0]) else "numpy"
 
         if target == "torch":
+            if not _check_soft_dependencies("torch", severity="none"):
+                raise ImportError(
+                    "return_format='torch' requires torch, which is not "
+                    "installed. Use return_format='numpy' or 'auto'."
+                )
+
             import torch
 
             return torch.cat(

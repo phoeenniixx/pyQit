@@ -1,10 +1,6 @@
-"""Console output for training runs.
+"""Console output for training runs."""
 
-Every rich / plaintext fork in the package lives here.  The loops call a
-``Reporter`` and never test ``HAS_RICH`` themselves, so the two backends cannot
-drift into printing different things.
-"""
-
+from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
 import sys
@@ -14,26 +10,33 @@ from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.utils.utils import _count_params
 
-HAS_RICH = _check_soft_dependencies("rich", severity="none")
-if HAS_RICH:
-    from rich.console import Console
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        TaskProgressColumn,
-        TextColumn,
-        TimeElapsedColumn,
-    )
-    from rich.table import Table
+_CONSOLE = None
 
-    console = Console()
-else:  # keep the name importable so callers need no second guard
-    console = None
+
+def has_rich() -> bool:
+    """Whether ``rich`` is installed."""
+    return _check_soft_dependencies("rich", severity="none")
+
+
+def console():
+    """The shared ``rich.Console``, or None when rich is not installed."""
+    global _CONSOLE
+    if _CONSOLE is None and has_rich():
+        from rich.console import Console
+
+        _CONSOLE = Console()
+    return _CONSOLE
 
 
 @contextmanager
-def lightning_log_level(level):
-    """Temporarily raise Lightning's logger level, restoring it afterwards."""
+def lightning_log_level(level: int) -> Iterator[None]:
+    """Raise Lightning's logger level for the duration of the block.
+
+    Parameters
+    ----------
+    level : int
+        A ``logging`` level applied to the ``lightning.pytorch`` logger.
+    """
     lit_logger = logging.getLogger("lightning.pytorch")
     previous = lit_logger.level
     lit_logger.setLevel(level)
@@ -54,6 +57,8 @@ class _NullProgress:
 
 
 class _RichProgress:
+    """Progress handle backed by a ``rich.progress.Progress`` task."""
+
     def __init__(self, progress, task_id, max_epochs):
         self._progress = progress
         self._task_id = task_id
@@ -75,6 +80,8 @@ class _RichProgress:
 
 
 class _PlainProgress:
+    """ASCII progress bar used when rich is not installed."""
+
     BAR_LEN = 30
 
     def __init__(self, max_epochs):
@@ -110,10 +117,10 @@ class Reporter:
     verbose : int
         ``0`` silent, ``1`` progress only, ``2`` progress plus the model table.
     max_epochs : int
-        Used to size the progress bar.
+        Sizes the progress bar.
     show_summary : bool, default True
-        Cleared by ``QuantumPipeline``, which prints one summary naming every
-        stage in place of one table per stage.
+        Whether the per-run model table may be printed. ``QuantumPipeline``
+        clears it and prints one summary covering every stage.
     """
 
     def __init__(self, verbose: int, max_epochs: int, show_summary: bool = True):
@@ -123,44 +130,44 @@ class Reporter:
 
     @property
     def quiet(self) -> bool:
+        """Whether all output is suppressed."""
         return self.verbose < 1
 
     @property
     def summary_suppressed(self) -> bool:
-        """Whether the run summary is being withheld, for any reason.
-
-        Lightning's own banner is silenced on exactly this condition, so the two
-        cannot disagree about whether a run is meant to be quiet.
-        """
+        """Whether the run summary is withheld, for any reason."""
         return not self.show_summary or self.verbose < 2
 
     def _emit(self, rich_markup: str, plain: str) -> None:
-        if HAS_RICH:
-            console.print(rich_markup)
+        if has_rich():
+            console().print(rich_markup)
         else:
             print(plain)
 
     def info(self, msg: str, tag: str = "Trainer") -> None:
+        """Print a neutral message."""
         if self.verbose < 1:
             return
         self._emit(f"[bold cyan][{tag}][/bold cyan] {msg}", f"[{tag}] {msg}")
 
     def success(self, msg: str, tag: str = "Trainer") -> None:
+        """Print a success message."""
         if self.verbose < 1:
             return
         self._emit(f"[bold green][{tag}][/bold green] {msg}", f"[{tag}] {msg}")
 
     def warn(self, msg: str, tag: str = "Trainer") -> None:
+        """Print a warning message."""
         if self.verbose < 1:
             return
         self._emit(f"[bold yellow][{tag}][/bold yellow] {msg}", f"[{tag}] {msg}")
 
     def banner(self, backend: str, learning_rate: float) -> None:
-        """One-line run header, used when the full table is not wanted."""
+        """Print a one-line run header, used in place of the full table."""
         if self.verbose < 1:
             return
-        if HAS_RICH:
-            console.print(
+        if has_rich():
+            console().print(
                 f"[bold cyan][Trainer][/bold cyan] Starting "
                 f"[green]{backend}[/green] backend | "
                 f"{self.max_epochs} epochs | lr={learning_rate}\n"
@@ -172,12 +179,28 @@ class Reporter:
             )
 
     def model_summary(self, model, dm, backend: str, optimizer: str, lr: float) -> None:
-        """Architecture and split sizes, once per fit."""
+        """Print the architecture and split sizes, once per fit.
+
+        Parameters
+        ----------
+        model : BaseModel
+            Supplies the qubit count, ansatz, encoder and parameter count.
+        dm : DataModule
+            Must already be set up; supplies the split sizes.
+        backend : str
+            Active backend name.
+        optimizer : str
+            Optimizer name, as passed to the Trainer.
+        lr : float
+            Learning rate.
+        """
         if self.summary_suppressed:
             return
-        if not HAS_RICH:
+        if not has_rich():
             self.banner(backend, lr)
             return
+
+        from rich.table import Table
 
         table = Table(show_header=True, header_style="bold cyan", box=None)
         table.add_column("Parameter", style="dim", width=20)
@@ -198,21 +221,29 @@ class Reporter:
         val_samples = len(dm.X_val) if dm.X_val is not None else 0
         table.add_row("Train / Val Samples", f"{train_samples} / {val_samples}")
 
-        console.print(table)
-        console.print()
+        console().print(table)
+        console().print()
 
     @contextmanager
-    def progress(self):
-        """Yield an object with ``update(epoch, train_loss, val_loss, elapsed)``."""
+    def progress(self) -> Iterator[object]:
+        """Yield a handle with ``update(epoch, train_loss, val_loss, elapsed)``."""
         if self.verbose < 1:
             yield _NullProgress()
-        elif HAS_RICH:
+        elif has_rich():
+            from rich.progress import (
+                BarColumn,
+                Progress,
+                TaskProgressColumn,
+                TextColumn,
+                TimeElapsedColumn,
+            )
+
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(complete_style="cyan", finished_style="bold green"),
                 TaskProgressColumn(),
                 TimeElapsedColumn(),
-                console=console,
+                console=console(),
             ) as progress:
                 task_id = progress.add_task("[cyan]Training...", total=self.max_epochs)
                 yield _RichProgress(progress, task_id, self.max_epochs)

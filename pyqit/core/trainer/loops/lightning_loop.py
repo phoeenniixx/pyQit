@@ -1,35 +1,25 @@
-"""Torch backend loop: a thin delegation to a real Lightning Trainer.
-
-Nothing about the training mechanics is reimplemented here. The loop's whole
-job is translating pyqit's Trainer settings into Lightning's constructor,
-forwarding anything else the user asked for verbatim, and bridging pyqit
-callbacks onto Lightning's hooks.
-"""
+"""Torch backend loop: delegates to ``lightning.pytorch.Trainer``."""
 
 import logging
 
-from skbase.utils.dependencies import _check_soft_dependencies
-
-from pyqit.core.losses import get_loss_fn
-from pyqit.core.trainer._reporting import lightning_log_level
 from pyqit.core.trainer.loops.base import BaseTrainingLoop
 
 
 class LightningLoop(BaseTrainingLoop):
-    """Delegate fitting to ``lightning.pytorch.Trainer``.
+    """Run the fit through a real Lightning Trainer.
 
-    Every Lightning setting pyqit does not derive itself is reachable through
-    ``Trainer(backend_kwargs=...)``, which is forwarded unchanged. Mirroring
-    Lightning's forty-odd constructor parameters onto pyqit's Trainer would
-    have meant maintaining a copy that goes stale on the next Lightning
-    release, and would still not cover settings added after this was written.
+    None of the training mechanics are reimplemented; the loop translates
+    pyqit's Trainer settings into Lightning's constructor, forwards
+    ``backend_kwargs`` unchanged, and bridges pyqit callbacks onto Lightning's
+    hooks.
     """
 
     _tags = {
         "object_type": "training_loop",
         "backend": "torch",
-        "rejects": {},
-        "warns": {},
+        "rejects": (),
+        "warns": (),
+        # Derived from Trainer settings below.
         "reserved_backend_kwargs": (
             "max_epochs",
             "callbacks",
@@ -41,15 +31,20 @@ class LightningLoop(BaseTrainingLoop):
         ),
     }
 
-    #: Lightning defaults to "auto" and would silently start using a GPU for
-    #: users who never asked; pyqit's own default has always been CPU.
+    #: Lightning defaults to "auto", which would start using a GPU unasked.
     DEFAULT_ACCELERATOR = "cpu"
 
-    def fit(self, model, datamodule, state, callbacks) -> None:
-        if not _check_soft_dependencies("lightning", severity="none"):
+    def fit(self, model, datamodule, state, callbacks: list) -> None:
+        """Fit through Lightning. See ``BaseTrainingLoop.fit``."""
+        from contextlib import nullcontext
+
+        from skbase.utils.dependencies import _check_soft_dependencies
+
+        if not _check_soft_dependencies(["lightning", "torch"], severity="none"):
             raise ImportError(
-                "Lightning is not installed. "
-                "Please install it to use the PyTorch backend."
+                "The PyTorch backend requires both lightning and torch, and at "
+                "least one is not installed. Install them with "
+                "`pip install pyqit[all_extras]`."
             )
 
         from lightning.pytorch import Trainer as LightningTrainer
@@ -58,6 +53,8 @@ class LightningLoop(BaseTrainingLoop):
             _LightningModelAdapter,
             _PyQitCallbackShim,
         )
+        from pyqit.core.losses import get_loss_fn
+        from pyqit.core.trainer._reporting import lightning_log_level
 
         trainer = self.trainer
         extra = self._resolve_backend_kwargs()
@@ -71,7 +68,7 @@ class LightningLoop(BaseTrainingLoop):
         has_val = datamodule.X_val is not None
 
         quiet = self.reporter.summary_suppressed
-        log_ctx = lightning_log_level(logging.WARNING) if quiet else _null_ctx()
+        log_ctx = lightning_log_level(logging.WARNING) if quiet else nullcontext()
 
         with log_ctx:
             pl_trainer = LightningTrainer(
@@ -80,22 +77,14 @@ class LightningLoop(BaseTrainingLoop):
                 logger=trainer.logger,
                 enable_progress_bar=(self.reporter.verbose >= 1),
                 enable_model_summary=False,
-                # pyqit's own ModelCheckpoint callback owns checkpointing on both
-                # backends; leaving this on would add Lightning's default
-                # checkpointer alongside it and write the run out twice.
+                # pyqit's ModelCheckpoint owns checkpointing on both backends;
+                # leaving this on would write the run out twice.
                 enable_checkpointing=False,
-                # val_dataloader() returns None without a validation split, which
-                # Lightning rejects outright; this is its supported way of saying
-                # the run has no validation loop.
+                # val_dataloader() returns None without a validation split,
+                # which Lightning rejects outright.
                 limit_val_batches=0 if not has_val else 1.0,
                 **extra,
             )
             pl_trainer.fit(pl_model, datamodule=pl_data)
 
         self.reporter.success("Training complete.")
-
-
-def _null_ctx():
-    from contextlib import nullcontext
-
-    return nullcontext()

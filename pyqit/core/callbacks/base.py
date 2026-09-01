@@ -1,12 +1,4 @@
-"""Backend-neutral callback protocol.
-
-A callback written against these three hooks runs unchanged on both backends:
-the pennylane loop calls them directly, and the Lightning loop reaches them
-through ``_PyQitCallbackShim``, which translates Lightning's hooks onto them.
-That is the whole reason the protocol is pyqit's own rather than Lightning's --
-a ``lightning.Callback`` cannot be honoured by a ``qml.AdamOptimizer`` loop, so
-accepting one would mean silently ignoring it on half the package.
-"""
+"""Backend-neutral callback protocol."""
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,9 +12,24 @@ class LoopState:
 
     Attributes
     ----------
+    model : BaseModel
+        The model being trained.
+    datamodule : DataModule
+        The data it is training on, already set up.
+    history : TrainingHistory
+        Metrics recorded so far this run.
+    reporter : Reporter
+        Console output, for callbacks that announce something.
+    max_epochs : int
+        Epoch budget for the run.
+    epoch : int
+        Zero-based index of the epoch just finished; ``-1`` before the first.
+    metrics : dict of {str: float}
+        This epoch's metrics, keyed ``train_loss``, ``val_loss``, ``train_acc``,
+        ``val_acc``, ``epoch_time``.
     stop : bool
-        Set by a callback to request that training end after this epoch. Both
-        loops check it; the Lightning loop forwards it to ``trainer.should_stop``.
+        Set by a callback to end training after this epoch. Both loops check it;
+        the Lightning loop forwards it to ``trainer.should_stop``.
     """
 
     model: Any
@@ -36,12 +43,7 @@ class LoopState:
 
 
 class BaseCallback(_PyQitObject):
-    """Base class for pyqit callbacks.
-
-    Subclasses override any subset of the three hooks. Every hook takes the
-    single ``LoopState`` argument, so adding information later does not change
-    any signature.
-    """
+    """Base class for pyqit callbacks."""
 
     _tags = {
         "object_type": "callback",

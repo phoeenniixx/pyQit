@@ -1,4 +1,4 @@
-"""A module for callbacks."""
+"""Callbacks run by both backend training loops."""
 
 from pyqit.core.callbacks.base import BaseCallback, LoopState
 from pyqit.core.callbacks.checkpoint import ModelCheckpoint
