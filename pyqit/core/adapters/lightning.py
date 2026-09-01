@@ -2,8 +2,6 @@
 
 from skbase.utils.dependencies import _check_soft_dependencies
 
-# Both are checked, not just lightning: the adapters below import torch inside
-# their methods, and this is the one gate every one of them sits behind.
 if _check_soft_dependencies(["lightning", "torch"], severity="none"):
     from lightning.pytorch import Callback, LightningDataModule, LightningModule
 else:

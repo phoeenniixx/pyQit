@@ -22,9 +22,7 @@ class PennyLaneLoop(BaseTrainingLoop):
     _tags = {
         "object_type": "training_loop",
         "backend": "pennylane",
-        # backend_kwargs targets lightning.pytorch.Trainer; there is none here.
         "rejects": ("backend_kwargs",),
-        # Metrics are returned in the TrainingHistory instead.
         "warns": ("logger",),
         "reserved_backend_kwargs": (),
     }

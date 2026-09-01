@@ -31,7 +31,6 @@ class LightningLoop(BaseTrainingLoop):
         ),
     }
 
-    #: Lightning defaults to "auto", which would start using a GPU unasked.
     DEFAULT_ACCELERATOR = "cpu"
 
     def fit(self, model, datamodule, state, callbacks: list) -> None:

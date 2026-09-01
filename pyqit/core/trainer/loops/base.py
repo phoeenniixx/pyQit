@@ -71,8 +71,6 @@ class BaseTrainingLoop(_PyQitObject):
                 warnings.warn(
                     f"Trainer({param}=...) is ignored on the {backend!r} backend.",
                     UserWarning,
-                    # _validate_config -> __init__ -> get_training_loop ->
-                    # Trainer.fit -> the caller, who is the one to point at.
                     stacklevel=5,
                 )
 
