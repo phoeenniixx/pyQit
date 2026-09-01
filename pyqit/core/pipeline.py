@@ -3,7 +3,7 @@ from contextlib import contextmanager
 import numpy as np
 from skbase.base import BaseMetaObject
 
-from pyqit.core.trainer import HAS_RICH, Trainer
+from pyqit.core.trainer import Trainer, console, has_rich
 from pyqit.data.datamodule import DataModule, _apply_prescale
 from pyqit.models.base.base import BaseModel
 from pyqit.utils.utils import (
@@ -568,7 +568,7 @@ class QuantumPipeline(BaseMetaObject):
 
         columns = ("#", "Stage", "Model", "Qubits", "Params", "Status")
 
-        if not HAS_RICH:
+        if not has_rich():
             print(f"\n[Pipeline] {header}")
             widths = [
                 max(len(c), *(len(r[j]) for r in rows)) for j, c in enumerate(columns)
@@ -582,27 +582,23 @@ class QuantumPipeline(BaseMetaObject):
 
         from rich.table import Table
 
-        from pyqit.core.trainer import console
-
         table = Table(show_header=True, header_style="bold cyan", box=None, title=None)
         for column in columns:
             table.add_column(column, style="bold" if column == "Stage" else None)
         for row in rows:
             table.add_row(*row)
 
-        console.print(f"[bold cyan][Pipeline][/bold cyan] {header}")
-        console.print(table)
-        console.print()
+        console().print(f"[bold cyan][Pipeline][/bold cyan] {header}")
+        console().print(table)
+        console().print()
 
     def _announce_stage(self, verbose: int, idx: int, name: str):
         """Name the stage about to train, since its trainer no longer does."""
         if verbose < 1:
             return
         label = f"[{idx + 1}/{len(self.steps)}] Fitting stage {name!r}"
-        if HAS_RICH:
-            from pyqit.core.trainer import console
-
-            console.print(f"[bold cyan]{label}[/bold cyan]")
+        if has_rich():
+            console().print(f"[bold cyan]{label}[/bold cyan]")
         else:
             print(label)
 

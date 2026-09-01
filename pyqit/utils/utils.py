@@ -56,9 +56,61 @@ def _round(x):
     return np.round(x)
 
 
+def _hard_labels(preds):
+    """Class predictions from raw model outputs, on either backend.
+
+    Multi-column output is an argmax over classes; a single column is
+    thresholded at 0.5. Shared rather than written once per backend: the two
+    copies would produce differing accuracy without either one raising.
+    """
+    if _is_torch(preds):
+        if preds.ndim > 1 and preds.shape[1] > 1:
+            return preds.argmax(dim=1)
+        return (preds >= 0.5).long().flatten()
+
+    preds = np.asarray(preds)
+    if preds.ndim > 1 and preds.shape[1] > 1:
+        return preds.argmax(axis=1)
+    return (preds >= 0.5).astype(int).flatten()
+
+
 def _count_params(model) -> int | None:
     """Total scalar trainable parameters of ``model``, or None if it exposes none."""
     weights = getattr(model, "weights", None)
     if not weights:
         return None
     return int(sum(np.prod(tuple(w.shape), dtype=int) for w in weights.values()))
+
+
+def _snapshot_weights(model) -> dict:
+    """Detached copy of ``model.weights``, safe to hold across further training.
+
+    Torch parameters are live objects that the optimizer mutates in place, so a
+    checkpoint that stored the references would silently track the *current*
+    weights rather than the best ones.
+    """
+    return {k: _to_numpy(v).copy() for k, v in model.weights.items()}
+
+
+def _restore_weights(model, snapshot: dict) -> None:
+    """Write ``snapshot`` back into ``model``, on either backend.
+
+    ``update_weights`` is a no-op under torch because autograd owns the
+    ``nn.Parameter`` objects, so the torch path copies into them in place
+    instead.
+    """
+    current = model.weights
+    if any(_is_torch(v) for v in current.values()):
+        import torch
+
+        with torch.no_grad():
+            for key, value in snapshot.items():
+                param = current[key]
+                param.copy_(torch.as_tensor(value, dtype=param.dtype))
+        return
+
+    import pennylane.numpy as pnp
+
+    model.update_weights(
+        {k: pnp.array(v, requires_grad=True) for k, v in snapshot.items()}
+    )
