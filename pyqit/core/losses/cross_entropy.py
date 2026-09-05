@@ -1,3 +1,4 @@
+import pennylane as qml
 import pennylane.numpy as pnp
 
 from pyqit.core.losses.base import BaseLoss
@@ -25,6 +26,7 @@ def cross_entropy_loss(preds, targets):
 
     if probs.ndim == 1 or (probs.ndim == 2 and probs.shape[1] == 1):
         probs = probs.flatten()
+        targets = qml.math.unwrap(targets)
         log_p = targets * pnp.log(probs) + (1.0 - targets) * pnp.log(1.0 - probs)
         return -pnp.mean(log_p)
 
