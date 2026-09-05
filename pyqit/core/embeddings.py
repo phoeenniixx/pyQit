@@ -34,9 +34,10 @@ class BaseEmbedding(_PyQitObject):
 
     @abstractmethod
     def forward(self, inputs):
-        pass
+        """Apply the embedding circuit to `inputs`, in place on the QNode."""
 
     def __call__(self, inputs):
+        """Alias for `forward`."""
         return self.forward(inputs)
 
 
@@ -55,12 +56,14 @@ class AngleEmbedding(BaseEmbedding):
         super().__init__(n_qubits=n_qubits)
 
     def forward(self, inputs):
+        """Apply one rotation gate per qubit. Expects `inputs` scaled to [0, pi]."""
         qml.AngleEmbedding(
             features=inputs, wires=range(self.n_qubits), rotation=self.rotation
         )
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         return [{"n_qubits": 2}, {"n_qubits": 4, "rotation": "Y"}]
 
 
@@ -80,6 +83,7 @@ class AmplitudeEmbedding(BaseEmbedding):
         super().__init__(n_qubits=n_qubits)
 
     def forward(self, inputs):
+        """Encode `inputs` into amplitudes. Expects `2 ** n_qubits` features."""
         qml.AmplitudeEmbedding(
             features=inputs,
             wires=range(self.n_qubits),
@@ -89,6 +93,7 @@ class AmplitudeEmbedding(BaseEmbedding):
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         return [{"n_qubits": 2}]
 
 
@@ -106,8 +111,10 @@ class IQPEmbedding(BaseEmbedding):
         super().__init__(n_qubits=n_qubits)
 
     def forward(self, inputs):
+        """Apply the IQP feature map. Expects `inputs` scaled to [0, pi]."""
         qml.IQPEmbedding(features=inputs, wires=range(self.n_qubits))
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         return [{"n_qubits": 2}]

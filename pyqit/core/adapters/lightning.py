@@ -11,14 +11,20 @@ else:
     )
 
     class Callback:
+        """Stub used when lightning/torch is missing; raises on construction."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError(_MESSAGE)
 
     class LightningModule:
+        """Stub used when lightning/torch is missing; raises on construction."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError(_MESSAGE)
 
     class LightningDataModule:
+        """Stub used when lightning/torch is missing; raises on construction."""
+
         def __init__(self, *args, **kwargs):
             raise ImportError(_MESSAGE)
 

@@ -4,6 +4,8 @@ from pyqit.base.base_object import _PyQitObject
 
 
 class BaseAnsatz(_PyQitObject):
+    """Base class for a parameterized quantum circuit block."""
+
     _tags = {
         "object_type": "ansatz",
         "ansatz_type": None,

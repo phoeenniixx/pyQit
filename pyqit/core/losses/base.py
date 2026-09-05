@@ -43,6 +43,18 @@ class BaseLoss(_PyQitObject):
             )
 
     def __call__(self, preds, targets):
+        """Evaluate the loss, dispatching to the active backend.
+
+        Parameters
+        ----------
+        preds : array-like
+            Model output. Probabilities, not logits.
+        targets : array-like
+
+        Returns
+        -------
+        float or tensor
+        """
         if self._backend == "torch":
             return self._torch(preds, targets)
         return self._pennylane(preds, targets)
@@ -62,4 +74,5 @@ class BaseLoss(_PyQitObject):
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         return [{"backend": "pennylane"}]

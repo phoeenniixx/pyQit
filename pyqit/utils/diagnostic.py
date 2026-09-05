@@ -12,6 +12,24 @@ logger = logging.getLogger("pyqit.diagnostics")
 
 @dataclass
 class BPResult:
+    """Result of `check_barren_plateau`.
+
+    `repr(result)` or `print(result)` renders a table (rich if installed,
+    ASCII otherwise).
+
+    Attributes
+    ----------
+    n_qubits, n_samples : int
+    layer_variances, layer_ratios : dict of {str: float}
+        Per-weight-layer gradient variance, and its ratio to the baseline.
+    overall_variance, quantum_variance : float
+    expected_variance : float
+        Theoretical floor from McClean et al., scaled by `bp_scale_factor`.
+    is_barren : bool
+    classical_variance : float, optional
+        Set only for hybrid models with classical weight layers.
+    """
+
     n_qubits: int
     n_samples: int
     layer_variances: dict[str, float]
@@ -119,6 +137,35 @@ def check_barren_plateau(
     loss_name: str = "mse",
     plot: bool = True,
 ) -> BPResult:
+    """Monte-Carlo sample gradients at random weights and compare to baseline.
+
+    Runs at construction-time weights, so it never touches or requires
+    fitting. `Trainer(check_bp=True)` runs this as a pre-flight check.
+
+    Parameters
+    ----------
+    model : BaseModel
+    datamodule_or_X : DataModule or array-like
+        A set-up `DataModule`, or raw `X`, in which case `y` is required.
+    y : array-like, optional
+        Required when `datamodule_or_X` is raw `X`.
+    num_samples : int, default 200
+        Random weight draws to average the gradient variance over.
+    loss_name : str, default "mse"
+        A name from `loss_registry()`.
+    plot : bool, default True
+        Draw a gradient-variance histogram if matplotlib is installed.
+
+    Returns
+    -------
+    BPResult
+
+    Examples
+    --------
+    >>> from pyqit.utils.diagnostic import check_barren_plateau
+    >>> result = check_barren_plateau(model, dm, num_samples=100)  # doctest: +SKIP
+    >>> print(result)  # doctest: +SKIP
+    """
     backend = getattr(model, "backend", get_backend())
 
     X, y_target = _resolve_input(datamodule_or_X, y, model)

@@ -19,6 +19,21 @@ from pyqit.utils.utils import (
 
 
 class PipelineStage:
+    """One model in a `QuantumPipeline`.
+
+    Parameters
+    ----------
+    model : BaseModel
+    name : str, optional
+        Defaults to the model's class name.
+    passthrough : bool, default False
+        Concatenate this stage's input onto its output.
+    trainable : bool, default True
+        `frozen_backbone` fit mode requires this False on every non-final stage.
+    input_slice : slice or array-like of int, optional
+        Feed only these input columns to this stage.
+    """
+
     def __init__(
         self, model, name=None, passthrough=False, trainable=True, input_slice=None
     ):
@@ -41,6 +56,27 @@ class PipelineStage:
 
 
 class QuantumPipeline(BaseMetaObject):
+    """Compose `PipelineStage`s sequentially or as an ensemble.
+
+    Parameters
+    ----------
+    steps : list of PipelineStage, or list of (name, model)
+    mode : {"sequential", "ensemble"}, default "sequential"
+        Sequential feeds each stage's output to the next. Ensemble runs every
+        stage on the same input and combines the outputs.
+    aggregation : {"mean", "vote"} or callable, default "mean"
+        How ensemble outputs are combined. Ignored in sequential mode.
+
+    Examples
+    --------
+    >>> from pyqit.core import PipelineStage, QuantumPipeline
+    >>> pipe = QuantumPipeline(
+    ...     [PipelineStage(backbone, trainable=False), PipelineStage(head)],
+    ...     mode="sequential",
+    ... )
+    >>> pipe.fit(dm, fit_mode="frozen_backbone")  # doctest: +SKIP
+    """
+
     _tags = {
         "mode": "sequential",
         "n_stages": 0,
@@ -66,13 +102,16 @@ class QuantumPipeline(BaseMetaObject):
         )
 
     def set_params(self, **kwargs):
+        """Set stage or nested-stage parameters. See `sklearn`'s convention."""
         return self._set_params("steps", **kwargs)
 
     def get_params(self, deep: bool = True):
+        """Get stage and nested-stage parameters. See `sklearn`'s convention."""
         return self._get_params("steps", deep=deep)
 
     @property
     def named_stages(self) -> dict[str, PipelineStage]:
+        """Stages keyed by name."""
         return dict(self.steps)
 
     def __getitem__(self, key: str | int) -> PipelineStage:
@@ -186,6 +225,7 @@ class QuantumPipeline(BaseMetaObject):
         self._check_stage_width(stage, self._dm_feature_width(dm))
 
     def forward(self, X):
+        """Run every stage on `X` and return the pipeline's raw output."""
         if self.mode == "sequential":
             return self._forward_sequential(X)
         elif self.mode == "ensemble":
@@ -225,6 +265,27 @@ class QuantumPipeline(BaseMetaObject):
     def fit(
         self, datamodule: DataModule, trainers=None, fit_mode: str = "sequential_greedy"
     ):
+        """Fit every stage.
+
+        Parameters
+        ----------
+        datamodule : DataModule
+        trainers : Trainer, list of Trainer, or dict, optional
+            One `Trainer` for every stage, one per stage by position or name,
+            or `None` to use each stage's default.
+        fit_mode : {"sequential_greedy", "frozen_backbone"}, default "sequential_greedy"
+            Ignored in ensemble mode. `frozen_backbone` requires every
+            non-final stage to have `trainable=False`.
+
+        Returns
+        -------
+        QuantumPipeline
+            `self`, fitted in place.
+
+        Examples
+        --------
+        >>> pipe.fit(dm, trainers=pyqit.Trainer(max_epochs=20))  # doctest: +SKIP
+        """
         verbose = self._pipeline_verbose(trainers)
 
         if self.mode == "ensemble":
@@ -435,6 +496,7 @@ class QuantumPipeline(BaseMetaObject):
         return result
 
     def predict_step(self, X):
+        """Run every stage on `X`, hard-labeling the final stage's output."""
         if self.mode == "sequential":
             current = X if _is_torch(X) else np.asarray(X)
 
@@ -478,6 +540,25 @@ class QuantumPipeline(BaseMetaObject):
         return_format: str = "auto",
         trainer_kwargs: dict = {},
     ):
+        """Predict on raw `X`, not a `DataModule`.
+
+        Reapplies the normalization and encoder prescaling fitted during
+        `fit`, so `X` should be the same kind of raw input `fit` was given.
+
+        Parameters
+        ----------
+        X : array-like
+        batch_size : int, default 32
+        return_format : {"auto", "numpy", "torch"}, default "auto"
+
+        Returns
+        -------
+        array-like
+
+        Examples
+        --------
+        >>> preds = pipe.predict(X_test)  # doctest: +SKIP
+        """
         dummy_y = np.zeros(len(X))
         dm = DataModule(X=X, y=dummy_y, batch_size=batch_size, split=(0.0, 0.0, 1.0))
 
@@ -612,6 +693,7 @@ class QuantumPipeline(BaseMetaObject):
         return trainers
 
     def clone(self) -> "QuantumPipeline":
+        """Return a new, unfitted `QuantumPipeline` with the same steps and settings."""
         import copy
 
         cloned_steps = [(name, copy.deepcopy(stage)) for name, stage in self.steps]
@@ -622,6 +704,7 @@ class QuantumPipeline(BaseMetaObject):
         )
 
     def __call__(self, X):
+        """Alias for `forward`."""
         return self.forward(X)
 
     def __repr__(self):

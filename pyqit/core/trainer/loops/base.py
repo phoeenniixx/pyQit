@@ -116,4 +116,5 @@ class BaseTrainingLoop(_PyQitObject):
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         return []

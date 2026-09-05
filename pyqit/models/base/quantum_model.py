@@ -9,6 +9,13 @@ from pyqit.models.base.base import BaseModel
 
 
 class BaseQuantumModel(BaseModel):
+    """Base class wiring a PennyLane QNode into either backend.
+
+    Subclasses build a QNode and call `register_qnode`; this class handles
+    the pennylane/torch fork, and exposes weights as a flat dict keyed
+    `"<qnode_name>.<weight_name>"` regardless of backend.
+    """
+
     _tags = {
         "object_type": "model",
         "is_quantum": True,
@@ -26,9 +33,21 @@ class BaseQuantumModel(BaseModel):
         self._qnodes = {}
 
     def get_interface(self):
+        """PennyLane QNode interface for the active backend."""
         return "torch" if self.backend == "torch" else "autograd"
 
     def register_qnode(self, name: str, qnode: qml.QNode, weight_shapes: dict):
+        """Wrap `qnode` for the active backend and store it under `name`.
+
+        Parameters
+        ----------
+        name : str
+            Key under which the node's weights appear in `weights`.
+        qnode : qml.QNode
+        weight_shapes : dict
+            Weight name to shape, as returned by an ansatz's
+            `get_weight_shapes`.
+        """
         if self.backend == "torch" and _check_soft_dependencies(
             ["torch"], severity="none"
         ):
@@ -46,6 +65,21 @@ class BaseQuantumModel(BaseModel):
             }
 
     def execute_qnode(self, name: str, X, **custom_weights):
+        """Run the QNode registered under `name` on a batch.
+
+        Parameters
+        ----------
+        name : str
+            Name passed to `register_qnode`.
+        X : array-like
+        **custom_weights
+            Flat `"<name>.<weight>"` overrides; unprefixed keys are ignored.
+            Falls back to the model's own weights when empty.
+
+        Returns
+        -------
+        array-like
+        """
         if self.backend == "torch":
             return getattr(self, name)(X)
         else:
@@ -67,10 +101,11 @@ class BaseQuantumModel(BaseModel):
 
     @abstractmethod
     def forward(self, X):
-        pass
+        """Run the model on a batch and return its raw output."""
 
     @property
     def weights(self):
+        """Flat `{"<qnode_name>.<weight_name>": array}` dict, both backends."""
         flat_weights = {}
         if self.backend == "torch":
             import torch
@@ -86,6 +121,15 @@ class BaseQuantumModel(BaseModel):
         return flat_weights
 
     def update_weights(self, flat_weights_dict):
+        """Write `flat_weights_dict` into the model's own weights.
+
+        No-op under torch, where autograd owns the `nn.Parameter`s directly.
+
+        Parameters
+        ----------
+        flat_weights_dict : dict
+            Keyed like `weights`.
+        """
         if self.backend == "torch":
             return
 
@@ -94,4 +138,5 @@ class BaseQuantumModel(BaseModel):
             self._qnodes[node_name]["weights"][w_name] = new_val
 
     def __call__(self, X):
+        """Alias for `forward`."""
         return self.forward(X)
