@@ -339,6 +339,30 @@ def test_predict_torch_format_requires_torch(monkeypatch):
         Trainer(verbose=0).predict(_model(), _dm(), return_format="torch")
 
 
+@pytest.mark.parametrize("return_format", ["auto", "numpy", "torch", "pennylane"])
+def test_predict_return_format(return_format):
+    """Each explicit format is requestable regardless of the active backend.
+
+    ``"auto"`` and ``"numpy"`` both collapse pennylane's native
+    ``pnp.tensor`` predictions down to a bare ``ndarray`` via ``np.asarray``;
+    ``"torch"`` and ``"pennylane"`` are opt-ins that instead preserve (or
+    convert into) an autograd-carrying tensor type.
+    """
+    import pennylane.numpy as pnp
+
+    expected_type = {
+        "auto": np.ndarray,
+        "numpy": np.ndarray,
+        "torch": pytest.importorskip("torch").Tensor,
+        "pennylane": pnp.tensor,
+    }[return_format]
+
+    pyqit.set_backend("pennylane")
+    preds = Trainer(verbose=0).predict(_model(), _dm(), return_format=return_format)
+
+    assert type(preds) is expected_type
+
+
 def _load(path):
     if path.endswith(".ckpt"):
         import torch
