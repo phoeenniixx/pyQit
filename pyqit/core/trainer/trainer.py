@@ -167,8 +167,11 @@ class Trainer(_PyQitObject):
             Used for inference only; weights are not touched.
         datamodule : DataModule
             Test split if present, else validation, else train.
-        return_format : {"auto", "numpy", "torch"}, default "auto"
-            ``"auto"`` follows whatever the model emits.
+        return_format : {"auto", "numpy", "torch", "pennylane"}, default "auto"
+            ``"auto"`` follows whatever the model emits. ``"pennylane"``
+            returns a ``pennylane.numpy.tensor`` rather than a bare
+            ``ndarray``, for callers composing the result into further
+            pnp-based code (a custom cost function, ``utils.diagnostic``).
 
         Returns
         -------
@@ -292,14 +295,30 @@ class Trainer(_PyQitObject):
             return torch.cat(
                 [p if _is_torch(p) else torch.as_tensor(p) for p in all_preds], dim=0
             )
+        elif target in ("numpy", "pennylane"):
+            # Both share this merge: a batch can be a torch tensor, a pnp
+            # tensor or a mid-trace ArrayBox depending on backend, and
+            # "pennylane" only needs one extra wrap over the merged result
+            # rather than repeating that per-batch normalisation itself.
+            merged = np.concatenate(
+                [
+                    p.detach().cpu().numpy() if _is_torch(p) else np.asarray(p)
+                    for p in all_preds
+                ],
+                axis=0,
+            )
 
-        return np.concatenate(
-            [
-                p.detach().cpu().numpy() if _is_torch(p) else np.asarray(p)
-                for p in all_preds
-            ],
-            axis=0,
-        )
+            if target == "pennylane":
+                import pennylane.numpy as pnp
+
+                return pnp.array(merged, requires_grad=False)
+
+            return merged
+        else:
+            raise ValueError(
+                f"Unknown return_format {return_format!r}; expected one of "
+                "'auto', 'numpy', 'torch', 'pennylane'."
+            )
 
     def __repr__(self) -> str:
         return (
