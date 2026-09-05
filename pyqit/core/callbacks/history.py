@@ -39,6 +39,7 @@ class HistoryCallback(BaseCallback):
 
     @classmethod
     def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
         from pyqit.core.trainer import TrainingHistory
 
         return [{"history_obj": TrainingHistory()}]

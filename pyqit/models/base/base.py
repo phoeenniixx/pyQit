@@ -4,9 +4,7 @@ from pyqit.base import _PyQitObject
 
 
 class BaseModel(_PyQitObject):
-    """
-    Base class for all trainable models in PyQit.
-    """
+    """Base class for all trainable models in PyQit."""
 
     _tags = {
         "object_type": "model",  # "ansatz" | "hybrid" | "kernel" | "classical"
@@ -18,12 +16,14 @@ class BaseModel(_PyQitObject):
 
     @abstractmethod
     def forward(self, X):
-        pass
+        """Run the model on a batch and return its raw output."""
 
     def __call__(self, X):
+        """Alias for `forward`."""
         return self.forward(X)
 
     def is_fitted(self) -> bool:
+        """Whether `Trainer.fit` has trained this model."""
         return getattr(self, "_is_fitted", False)
 
     def _mark_fitted(self):

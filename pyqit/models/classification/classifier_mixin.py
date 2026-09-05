@@ -3,12 +3,30 @@ from pyqit.utils.utils import _is_torch
 
 
 class ClassifierMixin(_PyQitObject):
+    """Turns raw model output into hard class labels.
+
+    Mixed into a model alongside a ``BaseModel``, which supplies ``forward``.
+    Binary models threshold at 0.5; multi-class models take the argmax.
+    """
+
     _tags = {
         "estimator_type": "classifier",
         "bp_scale_factor": 0.25,
     }
 
     def predict_step(self, X):
+        """Predict hard class labels for ``X``.
+
+        Parameters
+        ----------
+        X : array-like
+            Input batch.
+
+        Returns
+        -------
+        array-like
+            One label per row: 0/1 for binary, argmax index for multi-class.
+        """
         raw_output = self.forward(X)
 
         is_torch = _is_torch(raw_output)

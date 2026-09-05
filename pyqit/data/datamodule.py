@@ -194,6 +194,35 @@ def _apply_prescale(X, prescale: str, n_qubits: int):
 
 
 class DataModule:
+    """Lazy split, normalize, and prescale for a classical dataset.
+
+    Nothing runs until `setup()`, which `Trainer.fit`/`.predict` call for you.
+    Order is split, then stateful normalization fit on train only, then
+    stateless quantum prescaling driven by the model's embedding.
+
+    Parameters
+    ----------
+    X, y : array-like
+    name : str, default "dataset"
+    normalize : {"minmax", "zscore", "l2", "l1"}, optional
+    split : tuple of float, default (0.70, 0.15, 0.15)
+        Train, val, test fractions. Must sum to 1.0.
+    stratify : bool, default False
+    seed : int, optional, default 42
+    batch_size : int, default 32
+    num_workers : int, default 0
+        Torch backend only.
+    transform : callable or list of callable, optional
+    shuffle : bool, default True
+    drop_last : bool, default False
+
+    Examples
+    --------
+    >>> import pyqit
+    >>> dm = pyqit.DataModule(X, y, normalize="minmax", batch_size=16)
+    >>> history = pyqit.Trainer(max_epochs=10).fit(model, dm)  # doctest: +SKIP
+    """
+
     _VALID_NORMALIZE = ("minmax", "zscore", "l2", "l1")
 
     def __init__(
@@ -260,16 +289,41 @@ class DataModule:
 
     @classmethod
     def from_numpy(cls, X, y, **kw):
+        """Build like the constructor; kept for a consistent `from_*` family."""
         return cls(X, y, **kw)
 
     @classmethod
     def from_sklearn(cls, loader: Callable, **kw) -> "DataModule":
+        """Build from an sklearn dataset loader.
+
+        Parameters
+        ----------
+        loader : callable
+            E.g. `sklearn.datasets.load_iris`.
+        **kw
+            Forwarded to the constructor.
+
+        Examples
+        --------
+        >>> from sklearn.datasets import load_iris
+        >>> dm = pyqit.DataModule.from_sklearn(load_iris)  # doctest: +SKIP
+        """
         bunch = loader()
         name = kw.pop("name", loader.__name__.replace("load_", ""))
         return cls(bunch.data, bunch.target.astype(np.float64), name=name, **kw)
 
     @classmethod
     def from_dataframe(cls, df: Any, label_col: str | int = -1, **kw) -> "DataModule":
+        """Build from a DataFrame, splitting off `label_col` as `y`.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+        label_col : str or int, default -1
+            Column name, or a position (negative indexes from the end).
+        **kw
+            Forwarded to the constructor.
+        """
         col = (
             df.columns[label_col % len(df.columns)]
             if isinstance(label_col, int)
@@ -289,6 +343,7 @@ class DataModule:
     def from_csv(
         cls, path: str | Path, label_col: str | int = -1, delimiter: str = ",", **kw
     ) -> "DataModule":
+        """Build from a CSV file. See `from_dataframe` for `label_col`."""
         df = pd.read_csv(path, sep=delimiter)
         name = kw.pop("name", Path(path).stem)
         return cls.from_dataframe(df, label_col=label_col, name=name, **kw)
@@ -312,6 +367,30 @@ class DataModule:
         encoder: type | None = None,
         force: bool = False,
     ) -> "DataModule":
+        """Split, normalize, and prescale. Idempotent unless `force=True`.
+
+        `Trainer.fit`/`.predict` call this for you, passing `n_qubits` and
+        `encoder` from the model so quantum prescaling is never skipped.
+
+        Parameters
+        ----------
+        stage : {"fit", "predict"}, optional
+            `"predict"` skips the split and uses the whole dataset as test.
+        batch_size : int, optional
+            Applied even when already set up.
+        n_qubits : int, optional
+            From the model. Persists across a later `force=True` call that
+            omits it.
+        encoder : type, optional
+            Embedding class. Same persistence as `n_qubits`.
+        force : bool, default False
+            Redo the split even if already set up.
+
+        Returns
+        -------
+        DataModule
+            `self`.
+        """
         if batch_size is not None:
             self.batch_size = batch_size
 
@@ -396,10 +475,12 @@ class DataModule:
         return self
 
     def train_loader(self, shuffle: bool = True):
+        """Build a `DataLoader` (torch) or `_NumpyLoader` (pennylane) over train."""
         self._assert_setup("train_loader")
         return self._make_loader(self._X_train, self._y_train, shuffle)
 
     def val_loader(self, shuffle: bool = False):
+        """Build a loader like `train_loader`, over val. `None` with no val split."""
         self._assert_setup("val_loader")
         return (
             self._make_loader(self._X_val, self._y_val, shuffle)
@@ -408,6 +489,7 @@ class DataModule:
         )
 
     def test_loader(self, shuffle: bool = False):
+        """Build a loader like `train_loader`, over test. `None` with no test split."""
         self._assert_setup("test_loader")
         return (
             self._make_loader(self._X_test, self._y_test, shuffle)
@@ -432,36 +514,43 @@ class DataModule:
 
     @property
     def X_train(self):
+        """Train split features. Raises before `setup()`."""
         self._assert_setup("X_train")
         return self._X_train
 
     @property
     def y_train(self):
+        """Train split targets. Raises before `setup()`."""
         self._assert_setup("y_train")
         return self._y_train
 
     @property
     def X_val(self):
+        """Val split features, or `None` with no val split. Raises before `setup()`."""
         self._assert_setup("X_val")
         return self._X_val
 
     @property
     def y_val(self):
+        """Val split targets, or `None` with no val split. Raises before `setup()`."""
         self._assert_setup("y_val")
         return self._y_val
 
     @property
     def X_test(self):
+        """Test split features, or `None` with no test split. Raises before setup."""
         self._assert_setup("X_test")
         return self._X_test
 
     @property
     def y_test(self):
+        """Test split targets, or `None` with no test split. Raises before `setup()`."""
         self._assert_setup("y_test")
         return self._y_test
 
     @property
     def splits(self):
+        """`(X_train, y_train, X_val, y_val, X_test, y_test)`."""
         self._assert_setup("splits")
         return (
             self._X_train,
@@ -474,29 +563,48 @@ class DataModule:
 
     @property
     def n_samples(self):
+        """Total rows in `X`, before splitting."""
         return len(self.X_raw)
 
     @property
     def n_features(self):
+        """Raw feature count, before any prescaling."""
         return self.X_raw.shape[1]
 
     @property
     def n_classes(self):
+        """Number of unique values in `y`."""
         return len(np.unique(self.y_raw))
 
     @property
     def class_labels(self):
+        """Unique values in `y`."""
         return np.unique(self.y_raw)
 
     @property
     def feature_dim(self):
+        """Feature count after `setup()`; falls back to `n_features` before it."""
         return self._X_train.shape[1] if self._X_train is not None else self.n_features
 
     @property
     def normalizer(self) -> Optional["_Normalizer"]:
+        """The fitted `_Normalizer`, or `None` before setup or with no `normalize`."""
         return self._normalizer
 
     def reconfigure(self, **kwargs) -> "DataModule":
+        """Update settings and clear fitted state, requiring a re-`setup()`.
+
+        Parameters
+        ----------
+        **kwargs
+            Any of `normalize`, `split`, `stratify`, `seed`, `batch_size`,
+            `num_workers`, `transform`.
+
+        Returns
+        -------
+        DataModule
+            `self`.
+        """
         _ok = {
             "normalize",
             "split",
@@ -593,6 +701,7 @@ class DataModule:
         )
 
     def clone_empty(self) -> "DataModule":
+        """Return a shallow copy sharing this instance's fitted normalizer, unsetup."""
         import copy
 
         new_dm = object.__new__(DataModule)
