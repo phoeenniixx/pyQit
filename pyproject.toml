@@ -82,8 +82,7 @@ github-actions = ["pytest-github-actions-annotate-failures"]
 
 [tool.setuptools.packages.find]
 exclude = ["build_tools"]
-where = ["."]
-include = ["pyqit*"]
+include = ["pyqit", "pyqit*"]
 
 [build-system]
 build-backend = "setuptools.build_meta"
@@ -133,6 +132,7 @@ extend-ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"build_tools/changelog.py" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyqit"]
