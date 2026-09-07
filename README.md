@@ -1,7 +1,7 @@
 # PyQit
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)]()
+![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/phoeenniixx/pyQit/test.yml)](https://github.com/phoeenniixx/pyqit/actions)
 
@@ -11,7 +11,7 @@
 
 **Version `0.1.0b1`. The API is unstable and still changing.**
 
-### Key Features
+## Key Features
 
 * **Lightweight & Modular:** PyQit runs natively on **PennyLane** and **NumPy**.
     > **PyTorch and PyTorch Lightning are strictly optional soft dependencies.** If you don't need deep learning hybrid models or GPU orchestration, you don't have to install them.

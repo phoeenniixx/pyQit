@@ -105,7 +105,7 @@ class BaseQuantumModel(BaseModel):
 
     @property
     def weights(self):
-        """Flat `{"<qnode_name>.<weight_name>": array}` dict, both backends."""
+        """Flat ``{"<qnode_name>.<weight_name>": array}`` dict, both backends."""
         flat_weights = {}
         if self.backend == "torch":
             import torch
@@ -123,7 +123,7 @@ class BaseQuantumModel(BaseModel):
     def update_weights(self, flat_weights_dict):
         """Write `flat_weights_dict` into the model's own weights.
 
-        No-op under torch, where autograd owns the `nn.Parameter`s directly.
+        No-op under torch, where autograd owns the `nn.Parameter` objects directly.
 
         Parameters
         ----------
