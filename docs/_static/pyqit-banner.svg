@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 252 72" width="252" height="72" role="img" aria-label="PyQit">
+  <title>PyQit</title>
+  <defs>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(4 4)">
+    <rect width="64" height="64" rx="14" fill="url(#badge)"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="4.5"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 16 V48"/>
+      <circle cx="30" cy="32" r="11"/>
+      <path d="M36.5 38 L41 42.5"/>
+      <path d="M47 16 L55 32 L47 48"/>
+    </g>
+  </g>
+  <text x="84" y="49" font-family="DejaVu Sans, Verdana, sans-serif"
+        font-size="40" font-weight="bold" fill="#6366F1">PyQit</text>
+</svg>

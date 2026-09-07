@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 64" width="76" height="64" role="img" aria-label="PyQit">
+  <title>PyQit</title>
+  <defs>
+    <linearGradient id="pyqitDark" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="76" y2="64">
+      <stop offset="0" stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#C4B5FD"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#pyqitDark)" stroke-width="6.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 12 V52"/>
+    <circle cx="34" cy="32" r="14"/>
+    <path d="M43 41 L50 50"/>
+    <path d="M58 12 L69 32 L58 52"/>
+  </g>
+</svg>
