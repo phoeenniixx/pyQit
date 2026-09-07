@@ -36,6 +36,17 @@ autoclass_content = "class"
 nbsphinx_execute = "never"
 
 html_theme = "pydata_sphinx_theme"
+html_static_path = ["_static"]
+
+# .ico rather than .svg: it carries a simplified 16px glyph alongside the
+# full mark, because the ket bracket blurs into the Q below ~24px.
+html_favicon = "_static/favicon.ico"
+
 html_theme_options = {
     "github_url": "https://github.com/phoeenniixx/pyQit",
+    "logo": {
+        "image_light": "_static/pyqit-logo.svg",
+        "image_dark": "_static/pyqit-logo-dark.svg",
+        "text": "PyQit",
+    },
 }

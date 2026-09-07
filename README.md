@@ -1,7 +1,10 @@
-# PyQit
+<p align="center">
+  <img src="docs/_static/pyqit-banner.png" alt="PyQit" width="320">
+</p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 ![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)
+[![Docs](https://app.readthedocs.org/projects/pyqit/badge/?version=latest)](https://pyqit.readthedocs.io/en/latest/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/phoeenniixx/pyQit/test.yml)](https://github.com/phoeenniixx/pyqit/actions)
 
@@ -10,6 +13,8 @@
 > variational circuit does not mean hand-rolling an optimizer loop.
 
 **Version `0.1.0b1`. The API is unstable and still changing.**
+
+**[Read the documentation](https://pyqit.readthedocs.io/en/latest/)** for tutorials, the API reference and the how-it-works guide.
 
 ## Key Features
 
@@ -219,7 +224,7 @@ One caveat worth knowing before you spend an afternoon on it. skbase's class wal
 modules whose name starts with `_`, so a loss or loop defined in a private module is
 silently never registered.
 
-> #### Have a look at some tutorials [here](https://github.com/phoeenniixx/pyQit/tree/main/docs/tutorials/) for more info!
+> #### Have a look at some tutorials [here](https://pyqit.readthedocs.io/en/latest/tutorials/index.html) for more info!
 
 ## Contributing
 
