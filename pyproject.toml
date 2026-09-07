@@ -62,7 +62,7 @@ dev = [
   "sphinx",
   "pydata-sphinx-theme",
   "nbsphinx",
-  "recommonmark",
+  "myst-parser",
   "ipywidgets>=8.1.8,<9.0.0",
   "pytest-dotenv>=0.5.2,<1.0.0",
 ]
@@ -72,9 +72,9 @@ docs = [
   "sphinx>3.2,<9.1.1",
   "pydata-sphinx-theme",
   "nbsphinx",
-  "pandoc",
   "nbconvert",
-  "recommonmark",
+  "ipywidgets>=8.1.8,<9.0.0",
+  "myst-parser",
   "docutils",
 ]
 

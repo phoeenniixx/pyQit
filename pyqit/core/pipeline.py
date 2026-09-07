@@ -56,7 +56,7 @@ class PipelineStage:
 
 
 class QuantumPipeline(BaseMetaObject):
-    """Compose `PipelineStage`s sequentially or as an ensemble.
+    """Compose `PipelineStage` objects sequentially or as an ensemble.
 
     Parameters
     ----------

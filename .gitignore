@@ -103,3 +103,6 @@ dmypy.json
 checkpoints/
 lightning_logs/
 .DS_Store
+
+# sphinx build output
+docs/_build/
