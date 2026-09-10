@@ -81,14 +81,7 @@ def test_transform_runs_after_normalizing_and_prescaling(backend):
     [
         (0.7, 0.15, 0.15),
         (0.75, 0.0, 0.25),
-        pytest.param(
-            (0.75, 0.25, 0.0),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="int() truncation drops the remainder row when there is "
-                "no test split; see notes.md",
-            ),
-        ),
+        (0.75, 0.25, 0.0),
     ],
 )
 def test_seeded_split_is_reproducible_and_keeps_every_sample(split):
@@ -158,16 +151,7 @@ def test_retraining_after_reconfigure_uses_the_new_normalization():
     np.testing.assert_array_equal(dm.X_train, before)
 
 
-_PENNYLANE_SHUFFLE = pytest.mark.xfail(
-    strict=True,
-    reason="PennyLaneLoop hardcodes shuffle=True and _NumpyLoader reseeds on every "
-    "epoch, so the order neither follows the setting nor changes; see notes.md",
-)
-
-
-@pytest.mark.parametrize(
-    "backend", [pytest.param("pennylane", marks=_PENNYLANE_SHUFFLE), "torch"]
-)
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("shuffle", [False, True])
 def test_training_batch_order_follows_the_shuffle_setting(backend, shuffle):
     _require(backend)
@@ -187,20 +171,7 @@ def test_training_batch_order_follows_the_shuffle_setting(backend, shuffle):
         np.testing.assert_allclose(epoch2, dm.X_train, rtol=1e-6)
 
 
-@pytest.mark.parametrize(
-    "backend",
-    [
-        pytest.param(
-            "pennylane",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DataModule loaders never receive drop_last; only the "
-                "Lightning adapter honours it; see notes.md",
-            ),
-        ),
-        "torch",
-    ],
-)
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_drop_last_leaves_no_ragged_training_batch(backend):
     _require(backend)
     X, y = _data(n_samples=10)
@@ -211,6 +182,21 @@ def test_drop_last_leaves_no_ragged_training_batch(backend):
     Trainer(max_epochs=1, batch_size=4, verbose=0).fit(model, dm)
 
     assert [len(batch) for batch in seen] == [4, 4]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_drop_last_never_costs_validation_or_prediction_rows(backend):
+    """Three val rows at batch 4 would otherwise leave nothing to validate on."""
+    _require(backend)
+    X, y = _data(n_samples=10)
+    model = _model()
+    dm = DataModule(X, y, split=(0.7, 0.3, 0.0), batch_size=4, drop_last=True)
+    trainer = Trainer(max_epochs=1, batch_size=4, verbose=0)
+
+    history = trainer.fit(model, dm)
+
+    assert np.isfinite(history.val_loss).all()
+    assert len(trainer.predict(model, dm)) == len(dm.y_val)
 
 
 def test_csv_label_column_in_the_middle_does_not_leak_into_features(tmp_path):

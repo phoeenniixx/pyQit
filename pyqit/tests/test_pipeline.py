@@ -81,7 +81,7 @@ def test_sequential_greedy_trains_every_stage_except_frozen_ones():
 
 
 def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split():
-    """predict() re-applies the normalizer and prescaling fitted during fit."""
+    """predict() re-applies the fitted normalizer; each stage is then prescaled."""
     _require("pennylane")
     pyqit.set_seed(0)
     X, y = _data(n_samples=30)
@@ -93,28 +93,37 @@ def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split():
 
     pipe.predict(raw_test)
 
-    np.testing.assert_allclose(np.concatenate(seen), dm.X_test)
+    np.testing.assert_allclose(np.concatenate(seen), dm.X_test * np.pi)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="non-first stages re-prescale their whole input, so passthrough "
-    "columns are multiplied by pi a second time; see notes.md",
-)
-def test_passthrough_hands_the_head_the_backbones_input_unchanged():
+def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does():
+    """Handing the pipeline to Trainer.predict must not skip its prescaling."""
     _require("pennylane")
     pyqit.set_seed(0)
     X, y = _data()
+    first = _vqc()
+    pipe = QuantumPipeline([first, _vqc()])
+    seen = _record_inputs(first)
+
+    pipe.predict(X)
+    via_pipeline = np.concatenate(seen)
+    seen.clear()
+    Trainer(verbose=0).predict(pipe, DataModule(X, y, split=(0.0, 0.0, 1.0)))
+
+    np.testing.assert_allclose(np.concatenate(seen), via_pipeline)
+
+
+def test_passthrough_hands_the_head_the_backbones_input_unchanged():
+    _require("pennylane")
+    pyqit.set_seed(0)
+    X, _ = _data()
     backbone, head = _vqc(2), _vqc(3)
-    seen = _record_inputs(head)
+    backbone_saw, head_saw = _record_inputs(backbone), _record_inputs(head)
     pipe = QuantumPipeline([PipelineStage(backbone, passthrough=True), head])
-    dm = DataModule(X, y).setup(
-        n_qubits=backbone.n_qubits, encoder=type(backbone.embedding_obj)
-    )
 
-    pipe.forward(dm.X_train)
+    pipe.predict(X)
 
-    np.testing.assert_allclose(seen[0][:, :2], dm.X_train)
+    np.testing.assert_allclose(head_saw[0][:, :2], backbone_saw[0])
 
 
 @pytest.mark.parametrize(
@@ -123,15 +132,7 @@ def test_passthrough_hands_the_head_the_backbones_input_unchanged():
         (2, "mean"),
         (2, "vote"),
         (3, "mean"),
-        pytest.param(
-            3,
-            "vote",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="vote rounds each class probability rather than voting on "
-                "labels, returning an (n, n_classes) 0/1 matrix; see notes.md",
-            ),
-        ),
+        (3, "vote"),
     ],
 )
 def test_ensemble_of_identical_models_predicts_like_the_model(n_classes, aggregation):
@@ -155,12 +156,6 @@ def test_ensemble_of_identical_models_predicts_like_the_model(n_classes, aggrega
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=IndexError,
-    reason="DataModule prescaling truncates to the first stage's n_qubits before "
-    "input_slice is applied; see notes.md",
-)
 def test_first_stage_can_read_a_column_subset_of_wider_data():
     _require("pennylane")
     pyqit.set_seed(0)

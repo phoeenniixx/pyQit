@@ -131,8 +131,9 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
         self.weight_keys = list(self.ansatz_obj.get_weight_shapes().keys())
 
         dev = qml.device(self.device, wires=self.n_qubits)
-        primary_qnode = qml.QNode(
-            self._circuit, dev, interface=self.get_interface(), shots=self.shots
+        primary_qnode = qml.set_shots(
+            qml.QNode(self._circuit, dev, interface=self.get_interface()),
+            shots=self.shots,
         )
 
         self.register_qnode(

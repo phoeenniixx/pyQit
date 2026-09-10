@@ -36,7 +36,7 @@ class PennyLaneLoop(BaseTrainingLoop):
             pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
         ]
 
-        train_loader = datamodule.train_loader(shuffle=True)
+        train_loader = datamodule.train_loader()
         val_loader = datamodule.val_loader(shuffle=False)
 
         captured = {}

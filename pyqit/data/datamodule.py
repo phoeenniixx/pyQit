@@ -23,18 +23,23 @@ def _is_torch_transform(fn) -> bool:
 
 
 class _NumpyLoader:
-    def __init__(self, X, y, batch_size, shuffle, seed=None, transform=None):
+    def __init__(
+        self, X, y, batch_size, shuffle, seed=None, transform=None, drop_last=False
+    ):
         self.X, self.y = X, y
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.seed = seed
         self.transform = transform
+        self.drop_last = drop_last
+        self._rng = np.random.default_rng(seed)
 
     def __iter__(self):
         idx = np.arange(len(self.X))
         if self.shuffle:
-            idx = np.random.default_rng(self.seed).permutation(idx)
-        for s in range(0, len(self.X), self.batch_size):
+            idx = self._rng.permutation(idx)
+        stop = len(idx) - len(idx) % self.batch_size if self.drop_last else len(idx)
+        for s in range(0, stop, self.batch_size):
             b = idx[s : s + self.batch_size]
             Xb = self.X[b]
             if self.transform is not None:
@@ -42,6 +47,8 @@ class _NumpyLoader:
             yield Xb, self.y[b]
 
     def __len__(self):
+        if self.drop_last:
+            return len(self.X) // self.batch_size
         return int(np.ceil(len(self.X) / self.batch_size))
 
     def __repr__(self):
@@ -58,6 +65,7 @@ def _make_torch_loader(
     num_workers=0,
     numpy_transform=None,
     tensor_transform=None,
+    drop_last=False,
 ):
     import torch
     from torch.utils.data import DataLoader, Dataset
@@ -83,6 +91,7 @@ def _make_torch_loader(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
+        drop_last=drop_last,
     )
 
 
@@ -474,10 +483,18 @@ class DataModule:
         self._is_setup = True
         return self
 
-    def train_loader(self, shuffle: bool = True):
-        """Build a `DataLoader` (torch) or `_NumpyLoader` (pennylane) over train."""
+    def train_loader(self, shuffle: bool | None = None, drop_last: bool | None = None):
+        """Build a `DataLoader` (torch) or `_NumpyLoader` (pennylane) over train.
+
+        ``shuffle`` and ``drop_last`` default to this DataModule's own settings.
+        """
         self._assert_setup("train_loader")
-        return self._make_loader(self._X_train, self._y_train, shuffle)
+        return self._make_loader(
+            self._X_train,
+            self._y_train,
+            self.shuffle if shuffle is None else shuffle,
+            self.drop_last if drop_last is None else drop_last,
+        )
 
     def val_loader(self, shuffle: bool = False):
         """Build a loader like `train_loader`, over val. `None` with no val split."""
@@ -497,7 +514,7 @@ class DataModule:
             else None
         )
 
-    def _make_loader(self, X, y, shuffle):
+    def _make_loader(self, X, y, shuffle, drop_last=False):
         if self._backend == "torch":
             return _make_torch_loader(
                 X,
@@ -506,11 +523,14 @@ class DataModule:
                 shuffle=shuffle,
                 num_workers=self.num_workers,
                 tensor_transform=self._torch_transform,
+                drop_last=drop_last,
             )
         numpy_t = (
             None if self._numpy_transform_applied_in_setup else self._numpy_transform
         )
-        return _NumpyLoader(X, y, self.batch_size, shuffle, self.seed, numpy_t)
+        return _NumpyLoader(
+            X, y, self.batch_size, shuffle, self.seed, numpy_t, drop_last
+        )
 
     @property
     def X_train(self):
@@ -688,6 +708,11 @@ class DataModule:
         idx = rng.permutation(n)
         n_tr = int(n * train_frac)
         n_va = int(n * val_frac)
+        if test_frac <= 0:
+            if val_frac > 0:
+                n_va = n - n_tr
+            else:
+                n_tr = n
         i_tr = idx[:n_tr]
         i_va = idx[n_tr : n_tr + n_va] if val_frac > 0 else np.array([], int)
         i_te = idx[n_tr + n_va :] if test_frac > 0 else np.array([], int)

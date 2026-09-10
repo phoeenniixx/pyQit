@@ -261,7 +261,7 @@ class Trainer(_PyQitObject):
             return datamodule.test_loader(shuffle=False)
         if datamodule.X_val is not None:
             return datamodule.val_loader(shuffle=False)
-        return datamodule.train_loader(shuffle=False)
+        return datamodule.train_loader(shuffle=False, drop_last=False)
 
     def _inference_context(self):
         """A no-grad context on torch, a null context elsewhere."""
