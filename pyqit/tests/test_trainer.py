@@ -12,8 +12,10 @@ from pyqit.core.trainer.loops import PennyLaneLoop, loop_registry
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
 from pyqit.tests.scenarios import make_scenario
+from pyqit.utils.utils import _restore_weights
 
 BACKENDS = ["pennylane", "torch"]
+SIMULATORS = ["default.qubit", "lightning.qubit", "default.mixed", "reference.qubit"]
 
 
 def _require(backend):
@@ -23,9 +25,9 @@ def _require(backend):
     pyqit.set_backend(backend)
 
 
-def _model(n_qubits=3, n_layers=1):
+def _model(n_qubits=3, n_layers=1, **kwargs):
     pyqit.set_seed(42)
-    return VQCClassifier(n_qubits=n_qubits, n_layers=n_layers)
+    return VQCClassifier(n_qubits=n_qubits, n_layers=n_layers, **kwargs)
 
 
 def _dm(n_qubits=3, n_samples=16, batch_size=8, split=(0.6, 0.2, 0.2)):
@@ -445,3 +447,39 @@ def test_train_accuracy_costs_no_extra_circuit_pass(monkeypatch):
     # train_acc would add 2 more per epoch.
     assert len(calls) == 3 * 3
     assert all(0.0 <= a <= 1.0 for a in history.train_acc)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", SIMULATORS)
+def test_finite_shots_train_at_the_default_batch_size(backend, device):
+    """float32 torch inputs failed PennyLane's 1e-7 sampling check past ~8 rows."""
+    _require(backend)
+    pyqit.set_seed(42)
+    model = VQCClassifier(n_qubits=3, n_layers=1, device=device, shots=100)
+
+    history = Trainer(max_epochs=1, batch_size=32, verbose=0).fit(
+        model, _dm(n_samples=64)
+    )
+
+    assert all(0.0 <= a <= 1.0 for a in history.train_acc)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", SIMULATORS[1:])
+def test_every_analytic_simulator_gives_the_same_loss_curve(backend, device):
+    """From the same starting weights, only how gradients are computed changes."""
+    _require(backend)
+    reference, candidate = _model(), _model(device=device)
+    _restore_weights(
+        candidate, {k: np.array(_to_numpy(v)) for k, v in reference.weights.items()}
+    )
+
+    curves = [
+        Trainer(max_epochs=2, verbose=0).fit(model, _dm())
+        for model in (reference, candidate)
+    ]
+
+    for metric in ("train_loss", "val_loss"):
+        np.testing.assert_allclose(
+            getattr(curves[1], metric), getattr(curves[0], metric), rtol=1e-5
+        )

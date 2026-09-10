@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import copy
 
 import numpy as np
 from skbase.base import BaseMetaObject
@@ -12,7 +13,6 @@ from pyqit.utils.utils import (
     _ensure_col,
     _is_torch,
     _mean,
-    _round,
     _stack,
     _to_numpy,
 )
@@ -43,14 +43,19 @@ class PipelineStage:
         self.trainable = trainable
         self.input_slice = input_slice
 
+    def _flags(self):
+        return [
+            flag
+            for flag, on in (
+                ("frozen", not self.trainable),
+                ("passthrough", self.passthrough),
+                (f"slice={self.input_slice}", self.input_slice is not None),
+            )
+            if on
+        ]
+
     def __repr__(self):
-        flags = []
-        if self.passthrough:
-            flags.append("passthrough")
-        if not self.trainable:
-            flags.append("frozen")
-        if self.input_slice is not None:
-            flags.append(f"slice={self.input_slice}")
+        flags = self._flags()
         flag_str = f" [{', '.join(flags)}]" if flags else ""
         return f"Stage({self.name}{flag_str})"
 
@@ -117,7 +122,7 @@ class QuantumPipeline(BaseMetaObject):
     def __getitem__(self, key: str | int) -> PipelineStage:
         if isinstance(key, int):
             return self.steps[key][1]
-        return dict(self.steps)[key]
+        return self.named_stages[key]
 
     def __len__(self) -> int:
         return len(self.steps)
@@ -132,16 +137,14 @@ class QuantumPipeline(BaseMetaObject):
         return X[:, input_slice]
 
     @staticmethod
-    def _prescale_for(stage, X):
-        """Shape ``X`` for ``stage``'s embedding, as ``DataModule.setup`` does."""
-        if X is None:
-            return X
+    def _prescale_of(model):
+        return getattr(type(getattr(model, "embedding_obj", None)), "PRESCALE", None)
 
-        model = stage.model
-        n_qubits = getattr(model, "n_qubits", None)
-        embedding = getattr(model, "embedding_obj", None)
-        prescale = getattr(type(embedding), "PRESCALE", "none")
-        if n_qubits is None or prescale in (None, "none"):
+    def _prescale_for(self, stage, X):
+        """Shape ``X`` for ``stage``'s embedding, as ``DataModule.setup`` does."""
+        n_qubits = getattr(stage.model, "n_qubits", None)
+        prescale = self._prescale_of(stage.model)
+        if X is None or n_qubits is None or prescale in (None, "none"):
             return X
 
         if _is_torch(X):
@@ -151,27 +154,41 @@ class QuantumPipeline(BaseMetaObject):
             return torch.as_tensor(out, dtype=X.dtype, device=X.device)
         return _apply_prescale(np.asarray(X), prescale, n_qubits)
 
-    def _prepare_stage_input(self, X, stage, is_first: bool):
+    def _prepare_stage_input(self, X, stage):
         """Slice, then prescale, the input a stage is about to consume.
 
-        Prescaling is skipped for the first stage because ``DataModule.setup``
-        has already applied it there; doing it again would multiply by pi twice.
+        Every stage is prescaled here, the first included: the pipeline sets its
+        DataModule up without an encoder, so slicing and passthrough see the
+        unprescaled features and each embedding's prescaling runs exactly once.
         """
-        X = self._slice_input(X, stage.input_slice)
-        if not is_first:
-            X = self._prescale_for(stage, X)
-        return X
+        return self._prescale_for(stage, self._slice_input(X, stage.input_slice))
 
-    @staticmethod
-    def _expected_width(model):
+    def _run_stage(self, stage, X, final=False):
+        """Run one sequential stage on ``X``; return what the next one receives.
+
+        Passthrough concatenates the unprescaled slice, not the prescaled input,
+        so the next stage's prescaling is applied to it once rather than twice.
+        """
+        raw = self._slice_input(X, stage.input_slice)
+        inp = self._prescale_for(stage, raw)
+        self._check_stage_width(stage, inp.shape[-1])
+        out = stage.model.predict_step(inp) if final else stage.model.forward(inp)
+        out = _ensure_col(out)
+        return _cat(raw, out) if stage.passthrough else out
+
+    def _run_sequential(self, X, labels=False):
+        current = X if _is_torch(X) else np.asarray(X)
+        last = len(self.steps) - 1
+        for i, (_, stage) in enumerate(self.steps):
+            current = self._run_stage(stage, current, final=labels and i == last)
+        return current
+
+    def _expected_width(self, model):
         """Feature width ``model`` expects."""
         n_qubits = getattr(model, "n_qubits", None)
         if n_qubits is None:
             return None
-        embedding = getattr(model, "embedding_obj", None)
-        if getattr(type(embedding), "PRESCALE", None) == "amplitude":
-            return 2**n_qubits
-        return n_qubits
+        return 2**n_qubits if self._prescale_of(model) == "amplitude" else n_qubits
 
     def _check_stage_width(self, stage, n_features):
         """Raise if ``stage.model`` cannot consume ``n_features`` columns."""
@@ -182,14 +199,6 @@ class QuantumPipeline(BaseMetaObject):
             f"Stage '{stage.name}' expects {expected} features "
             f"but received {n_features}."
         )
-
-    @staticmethod
-    def _dm_feature_width(dm):
-        """Feature width of a DataModule, tolerating transformed clones."""
-        for split in (dm._X_train, dm._X_val, dm._X_test):
-            if split is not None:
-                return split.shape[-1]
-        return None
 
     def _check_ensemble_consistent(self):
         """Ensemble stages all receive the same X, so they must agree on shape."""
@@ -204,13 +213,8 @@ class QuantumPipeline(BaseMetaObject):
         specs = []
         for name, stage in self.steps:
             embedding = getattr(stage.model, "embedding_obj", None)
-            specs.append(
-                (
-                    name,
-                    self._expected_width(stage.model),
-                    type(embedding).__name__ if embedding is not None else None,
-                )
-            )
+            encoder = type(embedding).__name__ if embedding is not None else None
+            specs.append((name, self._expected_width(stage.model), encoder))
 
         if len({s[1:] for s in specs}) > 1:
             detail = "; ".join(f"{n}: width={w}, encoder={e}" for n, w, e in specs)
@@ -220,59 +224,50 @@ class QuantumPipeline(BaseMetaObject):
                 "n_qubits and encoder, or use mode='sequential'."
             )
 
-    def _check_fit_width(self, stage, dm):
-        """Validate the width a Trainer will actually feed ``stage.model``."""
-        self._check_stage_width(stage, self._dm_feature_width(dm))
-
     def forward(self, X):
-        """Run every stage on `X` and return the pipeline's raw output."""
+        """Run every stage on `X` and return the pipeline's raw output.
+
+        `X` is split and normalized but not prescaled: each stage's embedding
+        prescaling is applied here, as `predict` and `fit` do.
+        """
         if self.mode == "sequential":
-            return self._forward_sequential(X)
-        elif self.mode == "ensemble":
-            return self._forward_ensemble(X)
-        else:
-            raise ValueError(f"Unknown mode: {self.mode}")
-
-    def _forward_sequential(self, X):
-        current = X if _is_torch(X) else np.asarray(X)
-        for i, (_, stage) in enumerate(self.steps):
-            inp = self._prepare_stage_input(current, stage, is_first=(i == 0))
-            self._check_stage_width(stage, inp.shape[-1])
-
-            out = stage.model.forward(inp)
-            out = _ensure_col(out)
-            current = _cat(inp, out) if stage.passthrough else out
-
-        return current
+            return self._run_sequential(X)
+        return self._forward_ensemble(X)
 
     def _forward_ensemble(self, X):
-        raw = [stage.model.forward(X) for _, stage in self.steps]
+        inputs = [self._prepare_stage_input(X, stage) for _, stage in self.steps]
 
+        if self.aggregation == "vote":
+            labels = np.stack(
+                [
+                    _to_numpy(stage.model.predict_step(x)).ravel().astype(int)
+                    for (_, stage), x in zip(self.steps, inputs)
+                ]
+            )
+            return np.apply_along_axis(lambda v: np.bincount(v).argmax(), 0, labels)
+
+        raw = [stage.model.forward(x) for (_, stage), x in zip(self.steps, inputs)]
         if callable(self.aggregation):
             return self.aggregation(raw)
-
-        outputs = _stack(raw)
         if self.aggregation == "mean":
-            return _mean(outputs, axis=0)
-        if self.aggregation == "vote":
-            preds = _round(outputs)
-            return np.apply_along_axis(
-                lambda x: np.bincount(x.astype(int)).argmax(), 0, preds
-            )
+            return _mean(_stack(raw), axis=0)
 
         raise ValueError(f"Unknown aggregation: {self.aggregation}")
 
     def fit(
         self, datamodule: DataModule, trainers=None, fit_mode: str = "sequential_greedy"
     ):
-        """Fit every stage.
+        """Fit every trainable stage.
 
         Parameters
         ----------
         datamodule : DataModule
-        trainers : Trainer, list of Trainer, or dict, optional
-            One `Trainer` for every stage, one per stage by position or name,
-            or `None` to use each stage's default.
+            Split and normalized here, never prescaled: the pipeline prescales
+            every stage's input itself, so a DataModule already set up for a
+            single model's encoder is rejected.
+        trainers : Trainer, list of Trainer, or dict
+            One `Trainer` for every stage, or one per stage by position or
+            name. Every trainable stage needs one; a missing Trainer raises.
         fit_mode : {"sequential_greedy", "frozen_backbone"}, default "sequential_greedy"
             Ignored in ensemble mode. `frozen_backbone` requires every
             non-final stage to have `trainable=False`.
@@ -286,264 +281,126 @@ class QuantumPipeline(BaseMetaObject):
         --------
         >>> pipe.fit(dm, trainers=pyqit.Trainer(max_epochs=20))  # doctest: +SKIP
         """
-        verbose = self._pipeline_verbose(trainers)
-
+        if datamodule.encoder is not None:
+            raise ValueError(
+                f"This DataModule is already prescaled for "
+                f"{datamodule.encoder.__name__}, but a QuantumPipeline prescales "
+                "each stage's input itself, so it would be scaled twice. Pass a "
+                "DataModule that has not been set up for a single model."
+            )
         if self.mode == "ensemble":
             self._check_ensemble_consistent()
-            if not datamodule._is_setup:
-                self._setup_dm(datamodule, trainers)
-            self._print_pipeline_summary(verbose)
-            self._fit_independent(datamodule, trainers, verbose)
-
-        elif self.mode == "sequential":
-            if fit_mode not in ("sequential_greedy", "frozen_backbone"):
+        elif fit_mode not in ("sequential_greedy", "frozen_backbone"):
+            raise ValueError(
+                f"fit_mode {fit_mode!r} not valid for sequential pipeline."
+            )
+        elif fit_mode == "frozen_backbone":
+            trainable = [name for name, s in self.steps[:-1] if s.trainable]
+            if trainable:
                 raise ValueError(
-                    f"fit_mode {fit_mode!r} not valid for sequential pipeline."
+                    "frozen_backbone mode requires all stages except the last to "
+                    f"be frozen. Stage '{trainable[0]}' has trainable=True."
                 )
 
-            if not datamodule._is_setup:
-                self._setup_dm(datamodule, trainers)
-            self._print_pipeline_summary(verbose, fit_mode)
+        if not datamodule._is_setup:
+            first_trainer = self._get_trainer(trainers, 0, self.steps[0][0])
+            datamodule.setup(batch_size=getattr(first_trainer, "batch_size", None))
 
-            if fit_mode == "sequential_greedy":
-                self._fit_sequential_greedy(datamodule, trainers, verbose)
-            else:
-                self._fit_frozen_backbone(datamodule, trainers, verbose)
+        verbose = self._pipeline_verbose(trainers)
+        sequential = self.mode == "sequential"
+        self._print_pipeline_summary(verbose, fit_mode if sequential else None)
 
-        self._fit_normalize = datamodule.normalize
+        dm = datamodule
+        for i, (_, stage) in enumerate(self.steps):
+            if stage.trainable:
+                self._fit_stage(i, dm, trainers, verbose)
+            if sequential and i < len(self.steps) - 1:
+                dm = self._transform_datamodule(dm, stage)
+
         self._fit_normalizer = datamodule.normalizer
         return self
 
-    def _setup_dm(self, datamodule: DataModule, trainers: Trainer) -> DataModule:
-        first_model = self.steps[0][1].model
-        n_qubits = getattr(first_model, "n_qubits", None)
-
-        encoder_class = None
-        if hasattr(first_model, "embedding_obj"):
-            encoder_class = type(first_model.embedding_obj)
-
-        first_trainer = self._get_trainer(trainers, 0, self.steps[0][0])
-        target_batch_size = getattr(
-            first_trainer, "batch_size", getattr(datamodule, "batch_size", 32)
-        )
-
-        datamodule.setup(
-            batch_size=target_batch_size,
-            n_qubits=n_qubits,
-            encoder=encoder_class,
-        )
-
-    def _fit_independent(self, datamodule: DataModule, trainers, verbose: int = 0):
-        for i, (name, stage) in enumerate(self.steps):
-            if stage.trainable:
-                trainer = self._get_trainer(trainers, i, name)
-                if not trainer:
-                    raise ValueError(f"Missing Trainer for stage '{name}'")
-                self._announce_stage(verbose, i, name)
-                with self._quiet_stage_summary(trainer):
-                    trainer.fit(stage.model, datamodule)
-
-    def _fit_sequential_greedy(
-        self, datamodule: DataModule, trainers, verbose: int = 0
-    ):
-        current_dm = datamodule
-
-        for i, (name, stage) in enumerate(self.steps):
-            stage_dm = self._stage_datamodule(current_dm, stage, is_first=(i == 0))
-
-            if stage.trainable:
-                trainer = self._get_trainer(trainers, i, name)
-                if not trainer:
-                    raise ValueError(f"Missing Trainer for stage '{name}'")
-                self._check_fit_width(stage, stage_dm)
-                self._announce_stage(verbose, i, name)
-                with self._quiet_stage_summary(trainer):
-                    trainer.fit(stage.model, stage_dm)
-
-            if i < len(self.steps) - 1:
-                current_dm = self._transform_datamodule(stage_dm, stage)
-
-    def _fit_frozen_backbone(self, datamodule: DataModule, trainers, verbose: int = 0):
-        current_dm = datamodule
-
-        for i, (_, stage) in enumerate(self.steps[:-1]):
-            if stage.trainable:
-                raise ValueError(
-                    f"frozen_backbone mode requires all stages except the last to "
-                    f"be frozen. Stage '{stage.name}' has trainable=True."
-                )
-            current_dm = self._transform_datamodule(
-                self._stage_datamodule(current_dm, stage, is_first=(i == 0)), stage
-            )
-
-        last_idx = len(self.steps) - 1
-        last_name, last_stage = self.steps[last_idx]
-        trainer = self._get_trainer(trainers, last_idx, last_name)
+    def _fit_stage(self, idx, dm, trainers, verbose):
+        name, stage = self.steps[idx]
+        trainer = self._get_trainer(trainers, idx, name)
         if not trainer:
-            raise ValueError(f"Missing Trainer for final stage '{last_name}'")
-
-        last_dm = self._stage_datamodule(
-            current_dm, last_stage, is_first=(last_idx == 0)
-        )
-        self._check_fit_width(last_stage, last_dm)
-        self._announce_stage(verbose, last_idx, last_name)
+            raise ValueError(f"Missing Trainer for stage '{name}'")
+        stage_dm = self._stage_datamodule(dm, stage)
+        self._check_stage_width(stage, stage_dm._X_train.shape[-1])
+        self._announce_stage(verbose, idx, name)
         with self._quiet_stage_summary(trainer):
-            trainer.fit(last_stage.model, last_dm)
+            trainer.fit(stage.model, stage_dm)
 
-    def _stage_datamodule(
-        self, dm: DataModule, stage: PipelineStage, is_first: bool
-    ) -> DataModule:
+    def _stage_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
         """Slice and prescale ``dm`` into the view ``stage`` actually consumes."""
-        if stage.input_slice is None and is_first:
-            return dm
-
-        new_dm = dm.clone_empty()
-        new_dm._is_setup = True
-        new_dm._backend = dm._backend
-        new_dm._X_train = self._prepare_stage_input(dm._X_train, stage, is_first)
-        new_dm._X_val = self._prepare_stage_input(dm._X_val, stage, is_first)
-        new_dm._X_test = self._prepare_stage_input(dm._X_test, stage, is_first)
-
-        new_dm._y_train = dm._y_train
-        new_dm._y_val = dm._y_val
-        new_dm._y_test = dm._y_test
-
-        return new_dm
+        return dm._map_features(lambda X: self._prepare_stage_input(X, stage))
 
     def _transform_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
-        """Run ``stage`` over every split. ``dm`` must already be stage-prepared."""
+        """Run ``stage`` over every split of the unprescaled ``dm``."""
+        return dm._map_features(lambda X: self._transform_split(stage, X, dm._backend))
 
-        def _process_split(X):
-            if X is None:
-                return None
-            inp = X
-            self._check_stage_width(stage, X.shape[-1])
-            is_torch_backend = getattr(dm, "_backend", "") == "torch"
+    def _transform_split(self, stage, X, backend):
+        if backend != "torch" and not _is_torch(X):
+            return self._run_stage(stage, X)
 
-            if is_torch_backend or _is_torch(inp):
-                import torch
+        import torch
 
-                if not _is_torch(inp):
-                    inp = torch.as_tensor(np.asarray(inp), dtype=torch.float32)
+        if not _is_torch(X):
+            X = torch.as_tensor(np.asarray(X), dtype=torch.float32)
+        with torch.no_grad():
+            out = self._run_stage(stage, X)
+        return out.detach() if _is_torch(out) else out
 
-                with torch.no_grad():
-                    out = stage.model.forward(inp)
-                    if isinstance(out, torch.Tensor):
-                        out = out.detach()
-            else:
-                out = stage.model.forward(inp)
-            out = _ensure_col(out)
-
-            return _cat(inp, out) if stage.passthrough else out
-
-        new_dm = dm.clone_empty()
-
-        new_dm._is_setup = True
-        new_dm._backend = dm._backend
-        new_dm._X_train = _process_split(dm._X_train)
-        new_dm._X_val = _process_split(dm._X_val)
-        new_dm._X_test = _process_split(dm._X_test)
-
-        new_dm._y_train = dm._y_train
-        new_dm._y_val = dm._y_val
-        new_dm._y_test = dm._y_test
-
-        return new_dm
-
-    def _to_named_steps(self, steps: list) -> list[tuple[str, PipelineStage]]:
-        if steps and all(
-            isinstance(s, tuple)
-            and len(s) == 2
-            and isinstance(s[0], str)
-            and isinstance(s[1], PipelineStage)
-            for s in steps
-        ):
-            return list(steps)
-
-        result = []
-        seen_names: set[str] = set()
-
-        for i, s in enumerate(steps):
-            if isinstance(s, tuple) and len(s) == 2:
-                name, obj = s
-            elif isinstance(s, (PipelineStage, BaseModel)):
-                name, obj = None, s
-            else:
-                raise TypeError(
-                    f"Each stage must be a BaseModel, PipelineStage, or "
-                    f"(name, model/stage) tuple. Got {type(s).__name__} at index {i}."
-                )
-
+    @staticmethod
+    def _to_named_steps(steps: list) -> list[tuple[str, PipelineStage]]:
+        named, seen = [], set()
+        for i, step in enumerate(steps):
+            name, obj = (
+                step if isinstance(step, tuple) and len(step) == 2 else (None, step)
+            )
             if isinstance(obj, BaseModel):
                 obj = PipelineStage(obj, name=name)
-
             if not isinstance(obj, PipelineStage):
                 raise TypeError(
-                    f"Stage {i}: expected PipelineStage or BaseModel, "
-                    f"got {type(obj).__name__}."
+                    f"Each stage must be a BaseModel, PipelineStage, or "
+                    f"(name, model/stage) tuple. Got {type(step).__name__} at "
+                    f"index {i}."
                 )
 
-            if name is None:
-                name = obj.name
-            base, counter = name, 1
-            while name in seen_names:
+            base = name = name or obj.name
+            counter = 1
+            while name in seen:
                 name = f"{base}_{counter}"
                 counter += 1
-            seen_names.add(name)
+            seen.add(name)
             obj.name = name
-            result.append((name, obj))
-
-        return result
+            named.append((name, obj))
+        return named
 
     def predict_step(self, X):
         """Run every stage on `X`, hard-labeling the final stage's output."""
         if self.mode == "sequential":
-            current = X if _is_torch(X) else np.asarray(X)
+            return self._run_sequential(X, labels=True)
 
-            for i, (_, stage) in enumerate(self.steps):
-                inp = self._prepare_stage_input(current, stage, is_first=(i == 0))
-                self._check_stage_width(stage, inp.shape[-1])
-
-                if i < len(self.steps) - 1:
-                    out = stage.model.forward(inp)
-                else:
-                    out = stage.model.predict_step(inp)
-
-                out = _ensure_col(out)
-                current = _cat(inp, out) if stage.passthrough else out
-
-            return current
-
-        elif self.mode == "ensemble":
-            if self.aggregation == "vote":
-                return self._forward_ensemble(X)
-
-            raw_preds = self._forward_ensemble(X)
-
-            if raw_preds.ndim == 1 or (raw_preds.ndim == 2 and raw_preds.shape[1] == 1):
-                if _is_torch(raw_preds):
-                    import torch
-
-                    return (raw_preds >= 0.5).to(torch.int)
-                return (raw_preds >= 0.5).astype(int)
-            else:
-                if _is_torch(raw_preds):
-                    return raw_preds.argmax(dim=1)
-                return raw_preds.argmax(axis=1)
-
-        raise ValueError(f"Unknown mode: {self.mode}")
+        out = self._forward_ensemble(X)
+        if self.aggregation == "vote":
+            return out
+        if out.ndim > 1 and out.shape[1] > 1:
+            return out.argmax(1)
+        labels = out >= 0.5
+        return labels.int() if _is_torch(labels) else labels.astype(int)
 
     def predict(
         self,
         X,
         batch_size: int = 32,
         return_format: str = "auto",
-        trainer_kwargs: dict = {},
+        trainer_kwargs: dict | None = None,
     ):
         """Predict on raw `X`, not a `DataModule`.
 
-        Reapplies the normalization and encoder prescaling fitted during
-        `fit`, so `X` should be the same kind of raw input `fit` was given.
+        Reapplies the normalization fitted during `fit`, then prescales every
+        stage, so `X` should be the same kind of raw input `fit` was given.
 
         Parameters
         ----------
@@ -559,31 +416,19 @@ class QuantumPipeline(BaseMetaObject):
         --------
         >>> preds = pipe.predict(X_test)  # doctest: +SKIP
         """
-        dummy_y = np.zeros(len(X))
-        dm = DataModule(X=X, y=dummy_y, batch_size=batch_size, split=(0.0, 0.0, 1.0))
-
-        dm.normalize = getattr(self, "_fit_normalize", None)
-        dm._normalizer = getattr(self, "_fit_normalizer", None)
-
-        first_stage_model = self.steps[0][1].model
-        n_qubits = getattr(first_stage_model, "n_qubits", None)
-
-        encoder_class = None
-        if hasattr(first_stage_model, "embedding_obj"):
-            encoder_class = type(first_stage_model.embedding_obj)
-
-        dm.setup(
-            stage="predict",
+        normalizer = getattr(self, "_fit_normalizer", None)
+        dm = DataModule(
+            X,
+            np.zeros(len(X)),
+            normalize=normalizer.method if normalizer is not None else None,
+            split=(0.0, 0.0, 1.0),
             batch_size=batch_size,
-            n_qubits=n_qubits,
-            encoder=encoder_class,
         )
+        dm._normalizer = normalizer
+        dm.setup(stage="predict")
 
-        temp_trainer = Trainer(batch_size=batch_size, **trainer_kwargs)
-
-        return temp_trainer.predict(
-            model=self, datamodule=dm, return_format=return_format
-        )
+        trainer = Trainer(batch_size=batch_size, **(trainer_kwargs or {}))
+        return trainer.predict(model=self, datamodule=dm, return_format=return_format)
 
     def _pipeline_verbose(self, trainers) -> int:
         """Loudest verbosity among the stage trainers.
@@ -626,27 +471,17 @@ class QuantumPipeline(BaseMetaObject):
         elif fit_mode is not None:
             header += f" | fit_mode={fit_mode}"
 
-        rows = []
-        for i, (name, stage) in enumerate(self.steps):
-            n_params = _count_params(stage.model)
-            flags = []
-            if not stage.trainable:
-                flags.append("frozen")
-            if stage.passthrough:
-                flags.append("passthrough")
-            if stage.input_slice is not None:
-                flags.append(f"slice={stage.input_slice}")
-            rows.append(
-                (
-                    str(i + 1),
-                    name,
-                    type(stage.model).__name__,
-                    str(getattr(stage.model, "n_qubits", "N/A")),
-                    str(n_params) if n_params is not None else "0",
-                    ", ".join(flags) if flags else "trainable",
-                )
+        rows = [
+            (
+                str(i + 1),
+                name,
+                type(stage.model).__name__,
+                str(getattr(stage.model, "n_qubits", "N/A")),
+                str(_count_params(stage.model) or 0),
+                ", ".join(stage._flags()) or "trainable",
             )
-
+            for i, (name, stage) in enumerate(self.steps)
+        ]
         columns = ("#", "Stage", "Model", "Qubits", "Params", "Status")
 
         if not has_rich():
@@ -693,12 +528,9 @@ class QuantumPipeline(BaseMetaObject):
         return trainers
 
     def clone(self) -> "QuantumPipeline":
-        """Return a new, unfitted `QuantumPipeline` with the same steps and settings."""
-        import copy
-
-        cloned_steps = [(name, copy.deepcopy(stage)) for name, stage in self.steps]
+        """Return an independent copy: stages deep-copied, weights included."""
         return type(self)(
-            steps=cloned_steps,
+            steps=[(name, copy.deepcopy(stage)) for name, stage in self.steps],
             mode=self.mode,
             aggregation=self.aggregation,
         )

@@ -81,7 +81,12 @@ class BaseQuantumModel(BaseModel):
         array-like
         """
         if self.backend == "torch":
-            return getattr(self, name)(X)
+            layer = getattr(self, name)
+            if self.shots is None:
+                return layer(X)
+            import torch
+
+            return layer(X.to(torch.float64)).to(X.dtype)
         else:
             node_data = self._qnodes[name]
             if custom_weights:

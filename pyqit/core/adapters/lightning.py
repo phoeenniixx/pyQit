@@ -158,7 +158,7 @@ class _LightningDataAdapter(LightningDataModule):
                 "adapter to a Lightning Trainer."
             )
 
-    def _build_loader(self, X, y, shuffle=False):
+    def _build_loader(self, X, y, shuffle=False, drop_last=False):
         import torch
         from torch.utils.data import DataLoader, TensorDataset
 
@@ -174,13 +174,16 @@ class _LightningDataAdapter(LightningDataModule):
             batch_size=self.dm.batch_size,
             num_workers=self.dm.num_workers,
             shuffle=shuffle,
-            drop_last=self.dm.drop_last,
+            drop_last=drop_last,
         )
 
     def train_dataloader(self):
         """Loader over the training split."""
         return self._build_loader(
-            self.dm._X_train, self.dm._y_train, shuffle=self.dm.shuffle
+            self.dm._X_train,
+            self.dm._y_train,
+            shuffle=self.dm.shuffle,
+            drop_last=self.dm.drop_last,
         )
 
     def val_dataloader(self):
