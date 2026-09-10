@@ -445,3 +445,17 @@ def test_train_accuracy_costs_no_extra_circuit_pass(monkeypatch):
     # train_acc would add 2 more per epoch.
     assert len(calls) == 3 * 3
     assert all(0.0 <= a <= 1.0 for a in history.train_acc)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_finite_shots_train_at_the_default_batch_size(backend):
+    """float32 torch inputs failed PennyLane's 1e-7 sampling check past ~8 rows."""
+    _require(backend)
+    pyqit.set_seed(42)
+    model = VQCClassifier(n_qubits=3, n_layers=1, shots=100)
+
+    history = Trainer(max_epochs=1, batch_size=32, verbose=0).fit(
+        model, _dm(n_samples=64)
+    )
+
+    assert all(0.0 <= a <= 1.0 for a in history.train_acc)
