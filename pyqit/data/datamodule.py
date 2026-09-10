@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import copy
 from pathlib import Path
 from typing import Any, Optional
 
@@ -9,17 +10,14 @@ from pyqit.core.config import get_backend
 
 
 def _is_torch_transform(fn) -> bool:
-    if fn is None:
-        return False
-
-    fn_type = type(fn)
-
-    mro = getattr(fn_type, "__mro__", (fn_type,))
-
     return any(
-        (getattr(cls, "__module__", "") or "").startswith(("torch", "torchvision"))
-        for cls in mro
+        (getattr(cls, "__module__", None) or "").startswith("torch")
+        for cls in type(fn).__mro__
     )
+
+
+def _map_present(fn, arrays):
+    return [None if a is None else fn(a) for a in arrays]
 
 
 class _NumpyLoader:
@@ -29,21 +27,20 @@ class _NumpyLoader:
         self.X, self.y = X, y
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.seed = seed
         self.transform = transform
         self.drop_last = drop_last
         self._rng = np.random.default_rng(seed)
 
     def __iter__(self):
-        idx = np.arange(len(self.X))
-        if self.shuffle:
-            idx = self._rng.permutation(idx)
-        stop = len(idx) - len(idx) % self.batch_size if self.drop_last else len(idx)
-        for s in range(0, stop, self.batch_size):
-            b = idx[s : s + self.batch_size]
+        n = len(self.X)
+        idx = self._rng.permutation(n) if self.shuffle else np.arange(n)
+        if self.drop_last:
+            idx = idx[: n - n % self.batch_size]
+        for start in range(0, len(idx), self.batch_size):
+            b = idx[start : start + self.batch_size]
             Xb = self.X[b]
             if self.transform is not None:
-                Xb = np.stack([self.transform(Xb[i]) for i in range(len(Xb))])
+                Xb = np.stack([self.transform(x) for x in Xb])
             yield Xb, self.y[b]
 
     def __len__(self):
@@ -53,37 +50,30 @@ class _NumpyLoader:
 
     def __repr__(self):
         t = f", transform={self.transform!r}" if self.transform else ""
-        return f"_NumpyLoader(n={len(self.X)}, \
-            batch_size={self.batch_size}, shuffle={self.shuffle}{t})"
+        return (
+            f"_NumpyLoader(n={len(self.X)}, batch_size={self.batch_size}, "
+            f"shuffle={self.shuffle}{t})"
+        )
 
 
 def _make_torch_loader(
-    X,
-    y,
-    batch_size,
-    shuffle,
-    num_workers=0,
-    numpy_transform=None,
-    tensor_transform=None,
-    drop_last=False,
+    X, y, batch_size, shuffle, num_workers=0, tensor_transform=None, drop_last=False
 ):
     import torch
     from torch.utils.data import DataLoader, Dataset
 
-    _tt = tensor_transform
-
     class _DS(Dataset):
         def __init__(self, X, y):
-            self.X = torch.tensor(X, dtype=torch.float32)
-            self.y = torch.tensor(y, dtype=torch.float32)
+            self.X = torch.as_tensor(X, dtype=torch.float32)
+            self.y = torch.as_tensor(y, dtype=torch.float32)
 
         def __len__(self):
             return len(self.X)
 
         def __getitem__(self, i):
             x = self.X[i]
-            if _tt is not None:
-                x = _tt(x)
+            if tensor_transform is not None:
+                x = tensor_transform(x)
             return x, self.y[i]
 
     return DataLoader(
@@ -93,6 +83,11 @@ def _make_torch_loader(
         num_workers=num_workers,
         drop_last=drop_last,
     )
+
+
+def _unit_rows(X, ord=2):
+    norms = np.linalg.norm(X, ord=ord, axis=1, keepdims=True)
+    return X / np.where(norms == 0, 1.0, norms)
 
 
 class _Normalizer:
@@ -129,77 +124,50 @@ class _Normalizer:
             return (X - self._params["lo"]) / self._params["rng"]
         if self.method == "zscore":
             return (X - self._params["mu"]) / self._params["sigma"]
-        if self.method == "l2":
-            n = np.linalg.norm(X, axis=1, keepdims=True)
-            return X / np.where(n == 0, 1.0, n)
-        if self.method == "l1":
-            n = np.abs(X).sum(axis=1, keepdims=True)
-            return X / np.where(n == 0, 1.0, n)
-        raise ValueError(self.method)
+        return _unit_rows(X, ord=2 if self.method == "l2" else 1)
 
     def fit_transform(self, X):
         return self.fit(X).transform(X)
-
-    @property
-    def params(self) -> dict:
-        return self._params.copy()
 
     def __repr__(self):
         return f"_Normalizer(method={self.method!r}, fitted={self._fitted})"
 
 
-def _prescale_angle_pi(X, n_qubits):
-    n_f = X.shape[1]
-    X = (
-        np.hstack([X, np.zeros((len(X), n_qubits - n_f))])
-        if n_f < n_qubits
-        else X[:, :n_qubits]
-    )
+def _fit_width(X, width):
+    if X.shape[1] < width:
+        return np.hstack([X, np.zeros((len(X), width - X.shape[1]))])
+    return X[:, :width]
 
-    return X * np.pi
+
+def _prescale_angle_pi(X, n_qubits):
+    return _fit_width(X, n_qubits) * np.pi
 
 
 def _prescale_amplitude(X, n_qubits):
-    target = 2**n_qubits
-    n_f = X.shape[1]
-    X = (
-        np.hstack([X, np.zeros((len(X), target - n_f))])
-        if n_f < target
-        else X[:, :target]
-    )
-    norms = np.linalg.norm(X, axis=1, keepdims=True)
-    return X / np.where(norms == 0, 1.0, norms)
+    return _unit_rows(_fit_width(X, 2**n_qubits))
 
 
 def _prescale_binary(X, n_qubits):
-    X = (X >= 0.5).astype(np.float64)
-    n_f = X.shape[1]
-    return (
-        np.hstack([X, np.zeros((len(X), n_qubits - n_f))])
-        if n_f < n_qubits
-        else X[:, :n_qubits]
-    )
+    return _fit_width((X >= 0.5).astype(np.float64), n_qubits)
 
 
 _PRESCALE_FNS = {
     "angle_pi": _prescale_angle_pi,
     "amplitude": _prescale_amplitude,
     "binary": _prescale_binary,
-    "none": None,
 }
 
 
-def _apply_prescale(X, prescale: str, n_qubits: int):
-    fn = _PRESCALE_FNS.get(prescale)
-    if fn is None:
-        if prescale != "none":
-            raise ValueError(
-                f"Unknown PRESCALE {prescale!r}. "
-                f"Valid: {list(_PRESCALE_FNS)}. "
-                f"Check your embedding class's PRESCALE attribute."
-            )
+def _apply_prescale(X, prescale: str | None, n_qubits: int):
+    if prescale in (None, "none"):
         return X
-    return fn(X, n_qubits)
+    if prescale not in _PRESCALE_FNS:
+        raise ValueError(
+            f"Unknown PRESCALE {prescale!r}. "
+            f"Valid: {[*_PRESCALE_FNS, 'none']}. "
+            f"Check your embedding class's PRESCALE attribute."
+        )
+    return _PRESCALE_FNS[prescale](X, n_qubits)
 
 
 class DataModule:
@@ -232,7 +200,15 @@ class DataModule:
     >>> history = pyqit.Trainer(max_epochs=10).fit(model, dm)  # doctest: +SKIP
     """
 
-    _VALID_NORMALIZE = ("minmax", "zscore", "l2", "l1")
+    _RECONFIGURABLE = (
+        "normalize",
+        "split",
+        "stratify",
+        "seed",
+        "batch_size",
+        "num_workers",
+        "transform",
+    )
 
     def __init__(
         self,
@@ -249,24 +225,7 @@ class DataModule:
         shuffle: bool = True,
         drop_last: bool = False,
     ):
-        if normalize is not None and normalize not in self._VALID_NORMALIZE:
-            raise ValueError(
-                f"normalize={normalize!r} not supported.\n"
-                f"Numpy normalizers: {self._VALID_NORMALIZE}\n"
-                f"For torch transforms pass them via transform=."
-            )
-        if len(split) != 3:
-            raise ValueError(
-                f"split must be a 3-tuple (train, val, test), got {split!r}."
-            )
-        train, val, test = split
-        if abs(train + val + test - 1.0) > 1e-6:
-            raise ValueError(
-                f"split fractions must sum to 1.0, "
-                f"got {train+val+test:.6f} ({train}, {val}, {test})."
-            )
-        if train <= 0 and val <= 0 and test <= 0:
-            raise ValueError("At least one fraction must be > 0.")
+        self._validate(normalize, split)
 
         self.X_raw = np.asarray(X, dtype=np.float64)
         self.y_raw = np.asarray(y, dtype=np.float64)
@@ -275,7 +234,7 @@ class DataModule:
 
         self.name = name
         self.normalize = normalize
-        self.split = (train, val, test)
+        self.split = tuple(split)
         self.stratify = stratify
         self.seed = seed
         self.batch_size = batch_size
@@ -295,6 +254,27 @@ class DataModule:
         self._X_val = self._y_val = None
         self._X_test = self._y_test = None
         self._is_setup = False
+
+    @staticmethod
+    def _validate(normalize, split):
+        if normalize is not None and normalize not in _Normalizer.METHODS:
+            raise ValueError(
+                f"normalize={normalize!r} not supported.\n"
+                f"Numpy normalizers: {_Normalizer.METHODS}\n"
+                f"For torch transforms pass them via transform=."
+            )
+        if len(split) != 3:
+            raise ValueError(
+                f"split must be a 3-tuple (train, val, test), got {split!r}."
+            )
+        train, val, test = split
+        if abs(train + val + test - 1.0) > 1e-6:
+            raise ValueError(
+                f"split fractions must sum to 1.0, "
+                f"got {train + val + test:.6f} ({train}, {val}, {test})."
+            )
+        if train <= 0 and val <= 0 and test <= 0:
+            raise ValueError("At least one fraction must be > 0.")
 
     @classmethod
     def from_numpy(cls, X, y, **kw):
@@ -411,75 +391,42 @@ class DataModule:
         if n_qubits is not None:
             self.n_qubits = n_qubits
 
-        active_encoder = self.encoder
-
-        prescale = active_encoder.PRESCALE if active_encoder is not None else None
-        nq = self.n_qubits
-
-        numpy_fns, torch_fns = [], []
-        fns = (
-            self.transform
-            if isinstance(self.transform, list)
-            else ([self.transform] if self.transform is not None else [])
-        )
-        for fn in fns:
-            if _is_torch_transform(fn):
-                torch_fns.append(fn)
-            else:
-                numpy_fns.append(fn)
-
+        fns = self.transform if isinstance(self.transform, list) else [self.transform]
+        fns = [fn for fn in fns if fn is not None]
+        torch_fns = [fn for fn in fns if _is_torch_transform(fn)]
         if torch_fns and self._backend == "pennylane":
-            names = [type(f).__name__ for f in torch_fns]
+            names = [type(fn).__name__ for fn in torch_fns]
             raise RuntimeError(
                 f"Torch transform(s) {names} cannot be used with backend='pennylane'."
             )
-
-        self._numpy_transform = _compose(numpy_fns) if numpy_fns else None
-        self._torch_transform = _compose(torch_fns) if torch_fns else None
+        self._numpy_transform = _compose(
+            [fn for fn in fns if not _is_torch_transform(fn)]
+        )
+        self._torch_transform = _compose(torch_fns)
 
         if stage == "predict":
-            X_tr = y_tr = X_va = y_va = None
-            X_te, y_te = self.X_raw, self.y_raw
+            Xs, ys = [None, None, self.X_raw], [None, None, self.y_raw]
         else:
-            X_tr, y_tr, X_va, y_va, X_te, y_te = self._do_split()
+            Xs, ys = self._do_split()
 
-        if self.normalize is not None and X_tr is not None:
-            norm = _Normalizer(self.normalize)
-            X_tr = norm.fit_transform(X_tr)
-            X_va = norm.transform(X_va) if X_va is not None else None
-            X_te = norm.transform(X_te) if X_te is not None else None
-            self._normalizer = norm
-        elif self.normalize is not None and stage == "predict":
+        if self.normalize is not None:
+            if Xs[0] is not None:
+                self._normalizer = _Normalizer(self.normalize).fit(Xs[0])
             if self._normalizer is not None:
-                X_te = self._normalizer.transform(X_te)
+                Xs = _map_present(self._normalizer.transform, Xs)
 
+        prescale = self.encoder.PRESCALE if self.encoder is not None else None
         if prescale is not None:
-            if nq is None:
+            if self.n_qubits is None:
                 raise RuntimeError("Prescaling requires n_qubits.")
-            X_tr = _apply_prescale(X_tr, prescale, nq) if X_tr is not None else None
-            X_va = _apply_prescale(X_va, prescale, nq) if X_va is not None else None
-            X_te = _apply_prescale(X_te, prescale, nq) if X_te is not None else None
+            Xs = _map_present(lambda X: _apply_prescale(X, prescale, self.n_qubits), Xs)
 
         if self._numpy_transform is not None and self._backend == "torch":
-            if X_tr is not None:
-                X_tr = np.stack(
-                    [self._numpy_transform(X_tr[i]) for i in range(len(X_tr))]
-                )
-            if X_va is not None:
-                X_va = np.stack(
-                    [self._numpy_transform(X_va[i]) for i in range(len(X_va))]
-                )
-            if X_te is not None:
-                X_te = np.stack(
-                    [self._numpy_transform(X_te[i]) for i in range(len(X_te))]
-                )
-            self._numpy_transform_applied_in_setup = True
-        else:
-            self._numpy_transform_applied_in_setup = False
+            t = self._numpy_transform
+            Xs = _map_present(lambda X: np.stack([t(x) for x in X]), Xs)
 
-        self._X_train, self._y_train = X_tr, y_tr
-        self._X_val, self._y_val = X_va, y_va
-        self._X_test, self._y_test = X_te, y_te
+        self._X_train, self._X_val, self._X_test = Xs
+        self._y_train, self._y_val, self._y_test = ys
         self._is_setup = True
         return self
 
@@ -499,22 +446,16 @@ class DataModule:
     def val_loader(self, shuffle: bool = False):
         """Build a loader like `train_loader`, over val. `None` with no val split."""
         self._assert_setup("val_loader")
-        return (
-            self._make_loader(self._X_val, self._y_val, shuffle)
-            if self._X_val is not None
-            else None
-        )
+        return self._make_loader(self._X_val, self._y_val, shuffle)
 
     def test_loader(self, shuffle: bool = False):
         """Build a loader like `train_loader`, over test. `None` with no test split."""
         self._assert_setup("test_loader")
-        return (
-            self._make_loader(self._X_test, self._y_test, shuffle)
-            if self._X_test is not None
-            else None
-        )
+        return self._make_loader(self._X_test, self._y_test, shuffle)
 
     def _make_loader(self, X, y, shuffle, drop_last=False):
+        if X is None:
+            return None
         if self._backend == "torch":
             return _make_torch_loader(
                 X,
@@ -525,11 +466,14 @@ class DataModule:
                 tensor_transform=self._torch_transform,
                 drop_last=drop_last,
             )
-        numpy_t = (
-            None if self._numpy_transform_applied_in_setup else self._numpy_transform
-        )
         return _NumpyLoader(
-            X, y, self.batch_size, shuffle, self.seed, numpy_t, drop_last
+            X,
+            y,
+            self.batch_size,
+            shuffle,
+            seed=self.seed,
+            transform=self._numpy_transform,
+            drop_last=drop_last,
         )
 
     @property
@@ -625,20 +569,16 @@ class DataModule:
         DataModule
             `self`.
         """
-        _ok = {
-            "normalize",
-            "split",
-            "stratify",
-            "seed",
-            "batch_size",
-            "num_workers",
-            "transform",
-        }
-        for k, v in kwargs.items():
-            if k not in _ok:
+        for k in kwargs:
+            if k not in self._RECONFIGURABLE:
                 raise ValueError(
-                    f"reconfigure() does not accept {k!r}. Valid: {sorted(_ok)}"
+                    f"reconfigure() does not accept {k!r}. "
+                    f"Valid: {sorted(self._RECONFIGURABLE)}"
                 )
+        self._validate(
+            kwargs.get("normalize", self.normalize), kwargs.get("split", self.split)
+        )
+        for k, v in kwargs.items():
             setattr(self, k, v)
         self._is_setup = False
         self._normalizer = None
@@ -667,82 +607,66 @@ class DataModule:
             )
 
     def _do_split(self):
-        X, y = self.X_raw, self.y_raw
-        n = len(X)
-        train_frac, val_frac, test_frac = self.split
+        n = len(self.X_raw)
+        train, val, test = self.split
 
         if self.stratify:
-            from sklearn.model_selection import train_test_split as tts
+            i_tr, i_va, i_te = self._stratified_indices(n, val, test)
+        else:
+            idx = np.random.default_rng(self.seed).permutation(n)
+            n_tr, n_va = int(n * train), int(n * val)
+            if test <= 0:
+                n_tr, n_va = (n_tr, n - n_tr) if val > 0 else (n, 0)
+            i_tr, i_va, i_te = np.split(idx, [n_tr, n_tr + n_va])
 
-            if val_frac > 0 and test_frac > 0:
-                X_tr, X_tmp, y_tr, y_tmp = tts(
-                    X,
-                    y,
-                    test_size=val_frac + test_frac,
-                    random_state=self.seed,
-                    stratify=y,
-                )
-                X_va, X_te, y_va, y_te = tts(
-                    X_tmp,
-                    y_tmp,
-                    test_size=test_frac / (val_frac + test_frac),
-                    random_state=self.seed,
-                    stratify=y_tmp,
-                )
-            elif val_frac > 0:
-                X_tr, X_va, y_tr, y_va = tts(
-                    X, y, test_size=val_frac, random_state=self.seed, stratify=y
-                )
-                X_te = y_te = None
-            elif test_frac > 0:
-                X_tr, X_te, y_tr, y_te = tts(
-                    X, y, test_size=test_frac, random_state=self.seed, stratify=y
-                )
-                X_va = y_va = None
-            else:
-                X_tr, y_tr = X, y
-                X_va = y_va = X_te = y_te = None
-            return X_tr, y_tr, X_va, y_va, X_te, y_te
+        X, y = self.X_raw, self.y_raw
+        Xs = [X[i_tr]] + [X[i] if len(i) else None for i in (i_va, i_te)]
+        ys = [y[i_tr]] + [y[i] if len(i) else None for i in (i_va, i_te)]
+        return Xs, ys
 
-        rng = np.random.default_rng(self.seed)
-        idx = rng.permutation(n)
-        n_tr = int(n * train_frac)
-        n_va = int(n * val_frac)
-        if test_frac <= 0:
-            if val_frac > 0:
-                n_va = n - n_tr
-            else:
-                n_tr = n
-        i_tr = idx[:n_tr]
-        i_va = idx[n_tr : n_tr + n_va] if val_frac > 0 else np.array([], int)
-        i_te = idx[n_tr + n_va :] if test_frac > 0 else np.array([], int)
-        return (
-            X[i_tr],
-            y[i_tr],
-            X[i_va] if len(i_va) else None,
-            y[i_va] if len(i_va) else None,
-            X[i_te] if len(i_te) else None,
-            y[i_te] if len(i_te) else None,
+    def _stratified_indices(self, n, val, test):
+        from sklearn.model_selection import train_test_split
+
+        idx, held, empty = np.arange(n), val + test, np.array([], dtype=int)
+        if held <= 0:
+            return idx, empty, empty
+        i_tr, i_held = train_test_split(
+            idx, test_size=held, random_state=self.seed, stratify=self.y_raw
         )
+        if val <= 0:
+            return i_tr, empty, i_held
+        if test <= 0:
+            return i_tr, i_held, empty
+        i_va, i_te = train_test_split(
+            i_held,
+            test_size=test / held,
+            random_state=self.seed,
+            stratify=self.y_raw[i_held],
+        )
+        return i_tr, i_va, i_te
 
     def clone_empty(self) -> "DataModule":
-        """Return a shallow copy sharing this instance's fitted normalizer, unsetup."""
-        import copy
-
-        new_dm = object.__new__(DataModule)
-
-        new_dm.__dict__.update(self.__dict__)
-
+        """Return an unsetup shallow copy holding a copy of the fitted normalizer."""
+        new_dm = copy.copy(self)
         new_dm._normalizer = copy.deepcopy(self._normalizer)
-        new_dm.split = self.split
-        new_dm.transform = self.transform
-
-        new_dm.X_raw = None
-        new_dm.y_raw = None
+        new_dm.X_raw = new_dm.y_raw = None
         new_dm._X_train = new_dm._y_train = None
         new_dm._X_val = new_dm._y_val = None
         new_dm._X_test = new_dm._y_test = None
         new_dm._is_setup = False
+        return new_dm
+
+    def _map_features(self, fn) -> "DataModule":
+        new_dm = self.clone_empty()
+        new_dm._X_train, new_dm._X_val, new_dm._X_test = _map_present(
+            fn, (self._X_train, self._X_val, self._X_test)
+        )
+        new_dm._y_train, new_dm._y_val, new_dm._y_test = (
+            self._y_train,
+            self._y_val,
+            self._y_test,
+        )
+        new_dm._is_setup = True
         return new_dm
 
 

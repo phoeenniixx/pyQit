@@ -5,6 +5,7 @@ import pytest
 
 import pyqit
 from pyqit.core.callbacks import BaseCallback
+from pyqit.core.embeddings import AmplitudeEmbedding
 from pyqit.core.pipeline import PipelineStage, QuantumPipeline
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
@@ -57,8 +58,9 @@ def test_frozen_backbone_trains_only_the_head_then_predicts_raw_rows(backend):
     assert set(np.unique(preds)) <= {0, 1}
 
 
-def test_sequential_greedy_trains_every_stage_except_frozen_ones():
-    _require("pennylane")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_sequential_greedy_trains_every_stage_except_frozen_ones(backend):
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
     first, middle, last = _vqc(), _vqc(), _vqc()
@@ -80,9 +82,10 @@ def test_sequential_greedy_trains_every_stage_except_frozen_ones():
     ]
 
 
-def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split(backend):
     """predict() re-applies the fitted normalizer; each stage is then prescaled."""
-    _require("pennylane")
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data(n_samples=30)
     pipe = QuantumPipeline([_vqc(), _vqc()])
@@ -93,12 +96,13 @@ def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split():
 
     pipe.predict(raw_test)
 
-    np.testing.assert_allclose(np.concatenate(seen), dm.X_test * np.pi)
+    np.testing.assert_allclose(np.concatenate(seen), dm.X_test * np.pi, rtol=1e-6)
 
 
-def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does(backend):
     """Handing the pipeline to Trainer.predict must not skip its prescaling."""
-    _require("pennylane")
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
     first = _vqc()
@@ -113,8 +117,9 @@ def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does():
     np.testing.assert_allclose(np.concatenate(seen), via_pipeline)
 
 
-def test_passthrough_hands_the_head_the_backbones_input_unchanged():
-    _require("pennylane")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_passthrough_hands_the_head_the_backbones_input_unchanged(backend):
+    _require(backend)
     pyqit.set_seed(0)
     X, _ = _data()
     backbone, head = _vqc(2), _vqc(3)
@@ -126,6 +131,27 @@ def test_passthrough_hands_the_head_the_backbones_input_unchanged():
     np.testing.assert_allclose(head_saw[0][:, :2], backbone_saw[0])
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_amplitude_encoded_stages_receive_unit_norm_states(backend):
+    """Both the first stage and a downstream one are padded to 2**n and normalized."""
+    _require(backend)
+    pyqit.set_seed(0)
+    X, y = _data(n_features=4)
+    backbone = _vqc(2, encoder=AmplitudeEmbedding, n_classes=3)
+    head = _vqc(2, encoder=AmplitudeEmbedding)
+    backbone_saw, head_saw = _record_inputs(backbone), _record_inputs(head)
+    pipe = QuantumPipeline([PipelineStage(backbone, trainable=False), head])
+
+    pipe.fit(DataModule(X, y), trainers=_trainer(), fit_mode="frozen_backbone")
+    pipe.predict(X[:5])
+
+    assert backbone_saw and head_saw
+    for batch in backbone_saw + head_saw:
+        assert batch.shape[1] == 4
+        np.testing.assert_allclose(np.linalg.norm(batch, axis=1), 1.0, rtol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize(
     "n_classes, aggregation",
     [
@@ -135,9 +161,11 @@ def test_passthrough_hands_the_head_the_backbones_input_unchanged():
         (3, "vote"),
     ],
 )
-def test_ensemble_of_identical_models_predicts_like_the_model(n_classes, aggregation):
+def test_ensemble_of_identical_models_predicts_like_the_model(
+    n_classes, aggregation, backend
+):
     """The mean or majority of copies of one model is that model's own answer."""
-    _require("pennylane")
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
     model = _vqc(n_classes=n_classes)
@@ -156,8 +184,9 @@ def test_ensemble_of_identical_models_predicts_like_the_model(n_classes, aggrega
     )
 
 
-def test_first_stage_can_read_a_column_subset_of_wider_data():
-    _require("pennylane")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_first_stage_can_read_a_column_subset_of_wider_data(backend):
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data(n_features=4)
     first = _vqc(2)
@@ -167,11 +196,12 @@ def test_first_stage_can_read_a_column_subset_of_wider_data():
 
     pipe.predict(X[:3])
 
-    np.testing.assert_allclose(np.concatenate(seen), X[:3, [2, 3]] * np.pi)
+    np.testing.assert_allclose(np.concatenate(seen), X[:3, [2, 3]] * np.pi, rtol=1e-6)
 
 
-def test_fine_tuning_a_clone_leaves_the_original_untouched():
-    _require("pennylane")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_fine_tuning_a_clone_leaves_the_original_untouched(backend):
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
     pipe = QuantumPipeline([_vqc(), _vqc()])
@@ -194,8 +224,9 @@ class _EpochCounter(BaseCallback):
         self.epochs += 1
 
 
-def test_each_stage_trains_under_the_trainer_named_for_it():
-    _require("pennylane")
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_each_stage_trains_under_the_trainer_named_for_it(backend):
+    _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
     backbone_epochs, head_epochs = _EpochCounter(), _EpochCounter()
