@@ -360,7 +360,9 @@ class QuantumPipeline(BaseMetaObject):
             )
             if isinstance(obj, BaseModel):
                 obj = PipelineStage(obj, name=name)
-            if not isinstance(obj, PipelineStage):
+            if not isinstance(obj, PipelineStage) or not isinstance(
+                obj.model, BaseModel
+            ):
                 raise TypeError(
                     f"Each stage must be a BaseModel, PipelineStage, or "
                     f"(name, model/stage) tuple. Got {type(step).__name__} at "
@@ -429,6 +431,32 @@ class QuantumPipeline(BaseMetaObject):
 
         trainer = Trainer(batch_size=batch_size, **(trainer_kwargs or {}))
         return trainer.predict(model=self, datamodule=dm, return_format=return_format)
+
+    def validate(self, datamodule: DataModule, trainer_kwargs: dict | None = None):
+        """``val_loss`` and ``val_acc`` on ``datamodule``'s validation split.
+
+        Parameters
+        ----------
+        datamodule : DataModule
+            The one `fit` was given, or one set up the same way: split and
+            normalized but not prescaled for any single encoder.
+        trainer_kwargs : dict, optional
+            Forwarded to `Trainer`; `loss_fn` picks the loss reported.
+        """
+        return Trainer(**(trainer_kwargs or {})).validate(self, datamodule)
+
+    def test(self, datamodule: DataModule, trainer_kwargs: dict | None = None):
+        """``test_loss`` and ``test_acc`` on ``datamodule``'s test split.
+
+        Parameters
+        ----------
+        datamodule : DataModule
+            The one `fit` was given, or one set up the same way: split and
+            normalized but not prescaled for any single encoder.
+        trainer_kwargs : dict, optional
+            Forwarded to `Trainer`; `loss_fn` picks the loss reported.
+        """
+        return Trainer(**(trainer_kwargs or {})).test(self, datamodule)
 
     def _pipeline_verbose(self, trainers) -> int:
         """Loudest verbosity among the stage trainers.

@@ -12,7 +12,7 @@ from pyqit.core.trainer.loops import PennyLaneLoop, loop_registry
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
 from pyqit.tests.scenarios import make_scenario
-from pyqit.utils.utils import _restore_weights
+from pyqit.utils.utils import _hard_labels, _restore_weights
 
 BACKENDS = ["pennylane", "torch"]
 SIMULATORS = ["default.qubit", "lightning.qubit", "default.mixed", "reference.qubit"]
@@ -279,6 +279,49 @@ def test_predict_prescales_an_unfitted_datamodule():
     actual = Trainer(verbose=0).predict(model, fresh)
 
     np.testing.assert_allclose(_to_numpy(actual), _to_numpy(expected), rtol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_test_scores_the_test_split_with_the_configured_loss(backend):
+    """``test_acc`` must agree with predict-then-count, or one of them is wrong."""
+    _require(backend)
+    model = _model()
+    dm = _dm(n_samples=40)
+    trainer = Trainer(max_epochs=1, verbose=0, loss_fn="cross_entropy")
+    trainer.fit(model, dm)
+
+    metrics = trainer.test(model, dm)
+
+    preds = _to_numpy(trainer.predict(model, dm))
+    expected_acc = np.mean(_hard_labels(preds) == dm.y_test.astype(int).flatten())
+    assert set(metrics) == {"test_loss", "test_acc"}
+    assert metrics["test_acc"] == pytest.approx(expected_acc)
+    assert np.isfinite(metrics["test_loss"])
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_validate_after_fit_reproduces_the_last_epochs_val_metrics(backend):
+    """Same weights, same split: the two evaluators must not drift apart."""
+    _require(backend)
+    model = _model()
+    dm = _dm(n_samples=40)
+    trainer = Trainer(max_epochs=2, verbose=0, loss_fn="cross_entropy")
+    history = trainer.fit(model, dm)
+
+    metrics = trainer.validate(model, dm)
+
+    assert metrics["val_loss"] == pytest.approx(history.val_loss[-1], rel=1e-5)
+    assert metrics["val_acc"] == pytest.approx(history.val_acc[-1])
+
+
+@pytest.mark.parametrize(
+    "method, split", [("validate", (0.8, 0.0, 0.2)), ("test", (0.8, 0.2, 0.0))]
+)
+def test_evaluation_refuses_a_datamodule_missing_its_split(method, split):
+    """Scoring another split under the requested name would be a silent lie."""
+    pyqit.set_backend("pennylane")
+    with pytest.raises(ValueError, match="split"):
+        getattr(Trainer(verbose=0), method)(_model(), _dm(split=split))
 
 
 def test_lightning_adapter_reports_an_unprepared_datamodule():

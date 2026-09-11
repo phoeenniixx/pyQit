@@ -101,6 +101,13 @@ class PennyLaneLoop(BaseTrainingLoop):
         self._emit(callbacks, "on_fit_end", state)
         self.reporter.success("Training complete.")
 
+    def evaluate(self, model, datamodule, split: str) -> dict:
+        """Loss and accuracy on ``split``. See ``BaseTrainingLoop.evaluate``."""
+        loss_fn = get_loss_fn(self.trainer.loss_fn, backend="pennylane")
+        loader = getattr(datamodule, f"{split}_loader")(shuffle=False)
+        loss, acc = self._evaluate(model, loader, loss_fn)
+        return {f"{split}_loss": loss, f"{split}_acc": acc}
+
     @staticmethod
     def _make_optimizer(trainer):
         """The ``qml`` optimizer named by ``trainer.optimizer``.

@@ -363,8 +363,9 @@ class DataModule:
 
         Parameters
         ----------
-        stage : {"fit", "predict"}, optional
+        stage : {"fit", "val", "test", "predict"}, optional
             `"predict"` skips the split and uses the whole dataset as test.
+            Every other stage splits.
         batch_size : int, optional
             Applied even when already set up.
         n_qubits : int, optional

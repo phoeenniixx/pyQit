@@ -119,13 +119,8 @@ class Trainer(_PyQitObject):
         if self.seed is not None:
             set_seed(self.seed)
 
-        reporter = Reporter(
-            verbose=self.verbose,
-            max_epochs=self.max_epochs,
-            show_summary=self._print_summary,
-        )
-
-        loop = get_training_loop(self.backend, trainer=self, reporter=reporter)
+        loop = self._loop(show_summary=self._print_summary)
+        reporter = loop.reporter
 
         self._setup_data(model, datamodule, stage="fit")
 
@@ -152,6 +147,61 @@ class Trainer(_PyQitObject):
 
         loop.fit(model, datamodule, state, callbacks)
         return history
+
+    def validate(
+        self, model: BaseModel | BaseMetaObject, datamodule: DataModule
+    ) -> dict:
+        """Evaluate ``model`` on the validation split of ``datamodule``.
+
+        Parameters
+        ----------
+        model : BaseModel or BaseMetaObject
+            Evaluated with its current weights, which are not touched.
+        datamodule : DataModule
+            Set up here if it is not already. Must hold a validation split.
+
+        Returns
+        -------
+        dict
+            ``val_loss`` and ``val_acc`` under ``loss_fn``, as floats.
+        """
+        return self._evaluate(model, datamodule, "val")
+
+    def test(self, model: BaseModel | BaseMetaObject, datamodule: DataModule) -> dict:
+        """Evaluate ``model`` on the test split of ``datamodule``.
+
+        Parameters
+        ----------
+        model : BaseModel or BaseMetaObject
+            Evaluated with its current weights, which are not touched.
+        datamodule : DataModule
+            Set up here if it is not already. Must hold a test split.
+
+        Returns
+        -------
+        dict
+            ``test_loss`` and ``test_acc`` under ``loss_fn``, as floats.
+        """
+        return self._evaluate(model, datamodule, "test")
+
+    def _evaluate(self, model, datamodule: DataModule, split: str) -> dict:
+        """Score one split. Raises rather than falling back like ``predict``."""
+        loop = self._loop(show_summary=False)
+        self._setup_data(model, datamodule, stage=split)
+        if getattr(datamodule, f"X_{split}") is None:
+            raise ValueError(
+                f"This DataModule has no {split} split. Give DataModule(split=...) "
+                "a non-zero fraction for it, or use Trainer.predict, which falls "
+                "back to whichever split exists."
+            )
+        with self._inference_context():
+            return loop.evaluate(model, datamodule, split)
+
+    def _loop(self, show_summary: bool):
+        reporter = Reporter(
+            verbose=self.verbose, max_epochs=self.max_epochs, show_summary=show_summary
+        )
+        return get_training_loop(self.backend, trainer=self, reporter=reporter)
 
     def predict(
         self,
@@ -199,7 +249,7 @@ class Trainer(_PyQitObject):
     def _setup_data(self, model, datamodule: DataModule, stage: str) -> None:
         """Set the DataModule up with the shaping ``model`` implies.
 
-        ``fit`` and ``predict`` share this so they cannot disagree about the
+        Every entry point shares this so they cannot disagree about the
         encoder, which drives quantum prescaling: omitting it leaves inputs
         unscaled without raising. ``setup`` is idempotent, so calling this on an
         already-set-up DataModule only re-applies ``batch_size``.

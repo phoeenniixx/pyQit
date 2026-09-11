@@ -114,6 +114,24 @@ class BaseTrainingLoop(_PyQitObject):
             Fired on ``on_fit_start``, ``on_epoch_end`` and ``on_fit_end``.
         """
 
+    @abstractmethod
+    def evaluate(self, model, datamodule, split: str) -> dict:
+        """Evaluate ``model`` on one split without touching its weights.
+
+        Parameters
+        ----------
+        model : BaseModel
+            Evaluated with its current weights.
+        datamodule : DataModule
+            Already set up by the Trainer, holding ``split``.
+        split : {"val", "test"}
+
+        Returns
+        -------
+        dict
+            ``<split>_loss`` and ``<split>_acc`` as floats.
+        """
+
     @classmethod
     def get_test_params(cls):
         """List constructor kwargs used to parametrize this class in the test suite."""
