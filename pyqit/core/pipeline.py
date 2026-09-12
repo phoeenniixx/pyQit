@@ -255,11 +255,8 @@ class QuantumPipeline(BaseMetaObject):
 
         raise ValueError(f"Unknown aggregation: {self.aggregation}")
 
-    def fit(self, datamodule: DataModule, trainer: Trainer) -> dict:
+    def _fit(self, datamodule: DataModule, trainer: Trainer) -> dict:
         """Fit every trainable stage with ``trainer``.
-
-        `Trainer.fit(pipeline, datamodule)` calls this, so the two are the
-        same thing.
 
         Parameters
         ----------
@@ -275,9 +272,6 @@ class QuantumPipeline(BaseMetaObject):
         dict
             `TrainingHistory` per trained stage, keyed by stage name.
 
-        Examples
-        --------
-        >>> histories = pipe.fit(dm, pyqit.Trainer(max_epochs=20))  # doctest: +SKIP
         """
         if datamodule.encoder is not None:
             raise ValueError(
@@ -310,7 +304,6 @@ class QuantumPipeline(BaseMetaObject):
             if sequential and i < len(self.steps) - 1:
                 dm = self._transform_datamodule(dm, stage)
 
-        self._fit_normalizer = datamodule.normalizer
         return histories
 
     def _fit_stage(self, idx, dm, trainer, verbose):
@@ -380,41 +373,6 @@ class QuantumPipeline(BaseMetaObject):
             return out.argmax(1)
         labels = out >= 0.5
         return labels.int() if _is_torch(labels) else labels.astype(int)
-
-    def predict(self, X, batch_size: int = 32, return_format: str = "auto"):
-        """Predict on raw `X`, not a `DataModule`.
-
-        Reapplies the normalization fitted during `fit`, then prescales every
-        stage, so `X` should be the same kind of raw input `fit` was given.
-        `Trainer.predict(pipeline, datamodule)` is the DataModule counterpart.
-
-        Parameters
-        ----------
-        X : array-like
-        batch_size : int, default 32
-        return_format : {"auto", "numpy", "torch"}, default "auto"
-
-        Returns
-        -------
-        array-like
-
-        Examples
-        --------
-        >>> preds = pipe.predict(X_test)  # doctest: +SKIP
-        """
-        normalizer = getattr(self, "_fit_normalizer", None)
-        dm = DataModule(
-            X,
-            np.zeros(len(X)),
-            normalize=normalizer.method if normalizer is not None else None,
-            split=(0.0, 0.0, 1.0),
-            batch_size=batch_size,
-        )
-        dm._normalizer = normalizer
-        dm.setup(stage="predict")
-
-        trainer = Trainer(batch_size=batch_size)
-        return trainer.predict(model=self, datamodule=dm, return_format=return_format)
 
     @staticmethod
     @contextmanager

@@ -27,7 +27,7 @@ get trained.
    trainer.fit(pipe, dm)            # one TrainingHistory per trained stage
    trainer.test(pipe, dm)           # {"test_loss": ..., "test_acc": ...}
    preds = trainer.predict(pipe, dm)
-   preds = pipe.predict(X)          # raw arrays, re-normalized as in fit
+   preds = trainer.predict(pipe, dm.for_prediction(X_new))   # new raw rows
 
 Steps take either ``(name, model)`` tuples or :class:`PipelineStage` objects. A
 bare model gets its class name as the stage name.

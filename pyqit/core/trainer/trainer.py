@@ -124,7 +124,7 @@ class Trainer(_PyQitObject):
             ``TrainingHistory`` per trained stage keyed by stage name.
         """
         if isinstance(model, BaseMetaObject):
-            return model.fit(datamodule, self)
+            return model._fit(datamodule, self)
         if self.seed is not None:
             set_seed(self.seed)
 
