@@ -425,7 +425,7 @@ def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
     """Written before restore_best rewrites the model, or 'last' would be best."""
     _require(backend)
     checkpoint = ModelCheckpoint(
-        dirpath=str(tmp_path), save_last=True, monitor="train_loss"
+        dirpath=str(tmp_path), save_last=True, monitor="train_loss", mode="max"
     )
     model = _model()
     Trainer(max_epochs=4, learning_rate=0.5, verbose=0, callbacks=[checkpoint]).fit(
@@ -435,7 +435,9 @@ def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
     last = _load(checkpoint.last_path)
     best = _load(checkpoint.best_path)
 
-    # restore_best defaults on, so the model now holds the best epoch.
+    # mode="max" pins "best" to the highest-loss epoch, the first one in any run
+    # that improves, so it cannot coincide with the last regardless of trajectory.
+    # restore_best defaults on, so the model now holds that epoch.
     assert _weights_equal(best, model.weights)
     assert not _weights_equal(last, best), "last must not be the restored best"
 
@@ -525,4 +527,17 @@ def test_every_analytic_simulator_gives_the_same_loss_curve(backend, device):
     for metric in ("train_loss", "val_loss"):
         np.testing.assert_allclose(
             getattr(curves[1], metric), getattr(curves[0], metric), rtol=1e-5
+        )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", SIMULATORS[1:])
+def test_same_seed_gives_the_same_starting_weights_on_every_simulator(backend, device):
+    """Devices draw from numpy's RNG at construction, so weights come first."""
+    _require(backend)
+    reference, candidate = _model(), _model(device=device)
+
+    for key, value in reference.weights.items():
+        np.testing.assert_array_equal(
+            _to_numpy(candidate.weights[key]), _to_numpy(value)
         )

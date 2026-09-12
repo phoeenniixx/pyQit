@@ -36,7 +36,31 @@ class BaseQuantumModel(BaseModel):
         """PennyLane QNode interface for the active backend."""
         return "torch" if self.backend == "torch" else "autograd"
 
-    def register_qnode(self, name: str, qnode: qml.QNode, weight_shapes: dict):
+    def init_weights(self, weight_shapes: dict) -> dict:
+        """Draw uniform ``[0, 2pi)`` starting weights from numpy's global RNG.
+
+        Call this before building the device: a PennyLane device seeded
+        ``"global"`` consumes numpy's RNG at construction by a device-dependent
+        amount, so weights drawn after it differ per device for the same seed.
+
+        Parameters
+        ----------
+        weight_shapes : dict
+            Weight name to shape, as returned by an ansatz's
+            `get_weight_shapes`.
+
+        Returns
+        -------
+        dict
+        """
+        return {
+            w: pnp.random.uniform(0, 2 * pnp.pi, size=s, requires_grad=True)
+            for w, s in weight_shapes.items()
+        }
+
+    def register_qnode(
+        self, name: str, qnode: qml.QNode, weight_shapes: dict, weights=None
+    ):
         """Wrap `qnode` for the active backend and store it under `name`.
 
         Parameters
@@ -47,6 +71,9 @@ class BaseQuantumModel(BaseModel):
         weight_shapes : dict
             Weight name to shape, as returned by an ansatz's
             `get_weight_shapes`.
+        weights : dict, optional
+            Starting weights from `init_weights`; drawn here when omitted.
+            Ignored under torch, where `TorchLayer` initializes from torch's RNG.
         """
         if self.backend == "torch" and _check_soft_dependencies(
             ["torch"], severity="none"
@@ -58,10 +85,9 @@ class BaseQuantumModel(BaseModel):
             setattr(self, name, qnode)
             self._qnodes[name] = {
                 "node": qnode,
-                "weights": {
-                    w: pnp.random.uniform(0, 2 * pnp.pi, size=s, requires_grad=True)
-                    for w, s in weight_shapes.items()
-                },
+                "weights": self.init_weights(weight_shapes)
+                if weights is None
+                else weights,
             }
 
     def execute_qnode(self, name: str, X, **custom_weights):

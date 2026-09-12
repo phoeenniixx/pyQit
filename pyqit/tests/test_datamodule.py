@@ -199,6 +199,40 @@ def test_drop_last_never_costs_validation_or_prediction_rows(backend):
     assert len(trainer.predict(model, dm)) == len(dm.y_val)
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_predict_on_a_normalized_datamodule_that_was_never_fit_raises(backend):
+    """It used to feed the circuit raw values; fitting on predict rows is wrong."""
+    _require(backend)
+    X, y = _data()
+    model = _model()
+
+    with pytest.raises(RuntimeError, match="never been fit"):
+        Trainer(verbose=0).predict(model, DataModule(X * 10 + 5, y, normalize="minmax"))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_predict_applies_a_stateless_normalizer_without_a_fit(backend):
+    _require(backend)
+    X, y = _data()
+    model = _model()
+    seen = _record_inputs(model)
+
+    Trainer(verbose=0).predict(model, DataModule(X * 10 + 5, y, normalize="l2"))
+
+    rows = np.concatenate(seen) / np.pi
+    np.testing.assert_allclose(np.linalg.norm(rows, axis=1), 1.0, rtol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_more_features_than_the_embedding_takes_raises(backend):
+    """Extra columns used to be dropped without a word."""
+    _require(backend)
+    X, y = _data(n_features=3)
+
+    with pytest.raises(ValueError, match="at most 2"):
+        Trainer(max_epochs=1, verbose=0).fit(_model(), DataModule(X, y))
+
+
 def test_csv_label_column_in_the_middle_does_not_leak_into_features(tmp_path):
     _require("pennylane")
     df = pd.DataFrame(

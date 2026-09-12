@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 import pyqit
-from pyqit.core.callbacks import BaseCallback
 from pyqit.core.embeddings import AmplitudeEmbedding
 from pyqit.core.pipeline import PipelineStage, QuantumPipeline
 from pyqit.core.trainer import Trainer
@@ -46,10 +45,11 @@ def test_frozen_backbone_trains_only_the_head_then_predicts_raw_rows(backend):
     backbone, head = _vqc(3, n_classes=3), _vqc(3)
     backbone_before, head_before = _weights(backbone), _weights(head)
     pipe = QuantumPipeline(
-        [PipelineStage(backbone, trainable=False), PipelineStage(head)]
+        [PipelineStage(backbone, trainable=False), PipelineStage(head)],
+        fit_mode="frozen_backbone",
     )
 
-    pipe.fit(DataModule(X, y), trainers=_trainer(), fit_mode="frozen_backbone")
+    _trainer().fit(pipe, DataModule(X, y))
 
     assert not _changed(backbone_before, backbone)
     assert _changed(head_before, head)
@@ -73,7 +73,7 @@ def test_sequential_greedy_trains_every_stage_except_frozen_ones(backend):
         ]
     )
 
-    pipe.fit(DataModule(X, y), trainers=_trainer())
+    _trainer().fit(pipe, DataModule(X, y))
 
     assert [_changed(b, m) for b, m in zip(before, (first, middle, last))] == [
         True,
@@ -90,7 +90,7 @@ def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split(backen
     X, y = _data(n_samples=30)
     pipe = QuantumPipeline([_vqc(), _vqc()])
     dm = DataModule(X * 10 + 5, y, normalize="minmax", seed=1)
-    pipe.fit(dm, trainers=_trainer())
+    _trainer().fit(pipe, dm)
     raw_test = DataModule(X * 10 + 5, y, seed=1).setup().X_test
     seen = _record_inputs(pipe[0].model)
 
@@ -125,12 +125,13 @@ def test_pipeline_test_agrees_with_trainer_predict_on_the_test_split(backend):
     X, y = _data(n_samples=40)
     dm = DataModule(X, y, split=(0.6, 0.2, 0.2), batch_size=8)
     pipe = QuantumPipeline(
-        [PipelineStage(_vqc(), trainable=False), PipelineStage(_vqc())]
+        [PipelineStage(_vqc(), trainable=False), PipelineStage(_vqc())],
+        fit_mode="frozen_backbone",
     )
-    pipe.fit(dm, trainers=_trainer(), fit_mode="frozen_backbone")
+    _trainer().fit(pipe, dm)
 
-    metrics = pipe.test(dm)
-    val_metrics = pipe.validate(dm)
+    metrics = Trainer(verbose=0).test(pipe, dm)
+    val_metrics = Trainer(verbose=0).validate(pipe, dm)
 
     preds = np.ravel(_to_numpy(Trainer(verbose=0).predict(pipe, dm)))
     expected_acc = np.mean(preds.astype(int) == dm.y_test.astype(int).ravel())
@@ -161,9 +162,11 @@ def test_amplitude_encoded_stages_receive_unit_norm_states(backend):
     backbone = _vqc(2, encoder=AmplitudeEmbedding, n_classes=3)
     head = _vqc(2, encoder=AmplitudeEmbedding)
     backbone_saw, head_saw = _record_inputs(backbone), _record_inputs(head)
-    pipe = QuantumPipeline([PipelineStage(backbone, trainable=False), head])
+    pipe = QuantumPipeline(
+        [PipelineStage(backbone, trainable=False), head], fit_mode="frozen_backbone"
+    )
 
-    pipe.fit(DataModule(X, y), trainers=_trainer(), fit_mode="frozen_backbone")
+    _trainer().fit(pipe, DataModule(X, y))
     pipe.predict(X[:5])
 
     assert backbone_saw and head_saw
@@ -212,7 +215,7 @@ def test_first_stage_can_read_a_column_subset_of_wider_data(backend):
     X, y = _data(n_features=4)
     first = _vqc(2)
     pipe = QuantumPipeline([PipelineStage(first, input_slice=[2, 3]), _vqc()])
-    pipe.fit(DataModule(X, y), trainers=_trainer())
+    _trainer().fit(pipe, DataModule(X, y))
     seen = _record_inputs(first)
 
     pipe.predict(X[:3])
@@ -226,39 +229,11 @@ def test_fine_tuning_a_clone_leaves_the_original_untouched(backend):
     pyqit.set_seed(0)
     X, y = _data()
     pipe = QuantumPipeline([_vqc(), _vqc()])
-    pipe.fit(DataModule(X, y), trainers=_trainer())
+    _trainer().fit(pipe, DataModule(X, y))
     fitted = [_weights(stage.model) for _, stage in pipe.steps]
 
     clone = pipe.clone()
-    clone.fit(DataModule(X, y), trainers=_trainer())
+    _trainer().fit(clone, DataModule(X, y))
 
     assert not any(_changed(w, s.model) for w, (_, s) in zip(fitted, pipe.steps))
     assert all(_changed(w, s.model) for w, (_, s) in zip(fitted, clone.steps))
-
-
-class _EpochCounter(BaseCallback):
-    def __init__(self):
-        super().__init__()
-        self.epochs = 0
-
-    def on_epoch_end(self, state):
-        self.epochs += 1
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_each_stage_trains_under_the_trainer_named_for_it(backend):
-    _require(backend)
-    pyqit.set_seed(0)
-    X, y = _data()
-    backbone_epochs, head_epochs = _EpochCounter(), _EpochCounter()
-    pipe = QuantumPipeline([("backbone", _vqc()), ("head", _vqc())])
-
-    pipe.fit(
-        DataModule(X, y),
-        trainers={
-            "head": Trainer(max_epochs=3, callbacks=[head_epochs], verbose=0),
-            "backbone": Trainer(max_epochs=1, callbacks=[backbone_epochs], verbose=0),
-        },
-    )
-
-    assert (backbone_epochs.epochs, head_epochs.epochs) == (1, 3)

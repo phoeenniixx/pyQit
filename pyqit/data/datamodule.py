@@ -118,7 +118,9 @@ class _Normalizer:
     def transform(self, X):
         if self.method in ("minmax", "zscore") and not self._fitted:
             raise RuntimeError(
-                f"'{self.method}' normalizer must be fitted before transform()."
+                f"normalize={self.method!r} scales with statistics of the training "
+                "split, but this DataModule has never been fit. Fit it first, "
+                "clone_empty() one that was, or pass normalize=None."
             )
         if self.method == "minmax":
             return (X - self._params["lo"]) / self._params["rng"]
@@ -134,9 +136,14 @@ class _Normalizer:
 
 
 def _fit_width(X, width):
+    if X.shape[1] > width:
+        raise ValueError(
+            f"X has {X.shape[1]} features but the embedding takes at most {width}; "
+            "the rest would be silently dropped. Select or reduce features first."
+        )
     if X.shape[1] < width:
         return np.hstack([X, np.zeros((len(X), width - X.shape[1]))])
-    return X[:, :width]
+    return X
 
 
 def _prescale_angle_pi(X, n_qubits):
@@ -413,8 +420,9 @@ class DataModule:
         if self.normalize is not None:
             if Xs[0] is not None:
                 self._normalizer = _Normalizer(self.normalize).fit(Xs[0])
-            if self._normalizer is not None:
-                Xs = _map_present(self._normalizer.transform, Xs)
+            elif self._normalizer is None:
+                self._normalizer = _Normalizer(self.normalize)
+            Xs = _map_present(self._normalizer.transform, Xs)
 
         prescale = self.encoder.PRESCALE if self.encoder is not None else None
         if prescale is not None:

@@ -205,13 +205,16 @@ pipe = QuantumPipeline(
     ],
     mode="sequential",
 )
-pipe.fit(dm, trainers=pyqit.Trainer(max_epochs=20))
-preds = pipe.predict(X)          # takes raw arrays, not a DataModule
+trainer = pyqit.Trainer(max_epochs=20)
+trainer.fit(pipe, dm)            # same calls as for a single model
+preds = trainer.predict(pipe, dm)
+preds = pipe.predict(X)          # or raw arrays, re-normalized as in fit
 ```
 
 Sequential fitting materializes intermediate data by running each fitted stage over the
-whole split, so upstream stages do not re-run per batch. `fit_mode="frozen_backbone"`
-requires every non-final stage to be `trainable=False`.
+whole split, so upstream stages do not re-run per batch.
+`QuantumPipeline(..., fit_mode="frozen_backbone")` trains only the final stage and
+requires every other stage to be `trainable=False`.
 
 ## Extending
 
