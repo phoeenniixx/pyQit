@@ -43,6 +43,22 @@ so ``Trainer(batch_size=...)`` can override a datamodule you set up by hand.
 ``encoder`` and ``n_qubits`` are overwritten only when actually supplied, so they
 survive a later ``setup(force=True)`` that omits them.
 
+Predicting on new rows
+======================
+
+A datamodule that has been fit holds the normalizer statistics, and new data has
+to go through the same ones. ``for_prediction`` builds a predict-only datamodule
+over new raw rows that carries the fitted normalizer, the encoder and the qubit
+count from the one you trained on.
+
+.. code-block:: python
+
+   preds = trainer.predict(model, dm.for_prediction(X_new))
+
+Handing ``Trainer.predict`` a fresh ``DataModule(X_new, ...)`` with
+``normalize=`` set raises instead, because a normalizer that was never fit
+would either scale with the wrong statistics or not at all.
+
 Building from tables
 ====================
 

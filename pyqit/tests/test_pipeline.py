@@ -49,11 +49,14 @@ def test_frozen_backbone_trains_only_the_head_then_predicts_raw_rows(backend):
         fit_mode="frozen_backbone",
     )
 
-    _trainer().fit(pipe, DataModule(X, y))
+    dm = DataModule(X, y)
+    _trainer().fit(pipe, dm)
 
     assert not _changed(backbone_before, backbone)
     assert _changed(head_before, head)
-    preds = pipe.predict(X[:5], return_format="numpy")
+    preds = Trainer(verbose=0).predict(
+        pipe, dm.for_prediction(X[:5]), return_format="numpy"
+    )
     assert len(preds) == 5
     assert set(np.unique(preds)) <= {0, 1}
 
@@ -84,7 +87,7 @@ def test_sequential_greedy_trains_every_stage_except_frozen_ones(backend):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split(backend):
-    """predict() re-applies the fitted normalizer; each stage is then prescaled."""
+    """for_prediction() carries the fitted normalizer; each stage is then prescaled."""
     _require(backend)
     pyqit.set_seed(0)
     X, y = _data(n_samples=30)
@@ -94,14 +97,14 @@ def test_predict_on_raw_rows_feeds_the_first_stage_the_preprocessed_split(backen
     raw_test = DataModule(X * 10 + 5, y, seed=1).setup().X_test
     seen = _record_inputs(pipe[0].model)
 
-    pipe.predict(raw_test)
+    Trainer(verbose=0).predict(pipe, dm.for_prediction(raw_test))
 
     np.testing.assert_allclose(np.concatenate(seen), dm.X_test * np.pi, rtol=1e-6)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does(backend):
-    """Handing the pipeline to Trainer.predict must not skip its prescaling."""
+def test_trainer_predict_prescales_a_pipelines_first_stage(backend):
+    """The pipeline's DataModule is never prescaled, so the pipeline must do it."""
     _require(backend)
     pyqit.set_seed(0)
     X, y = _data()
@@ -109,12 +112,9 @@ def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does(backend):
     pipe = QuantumPipeline([first, _vqc()])
     seen = _record_inputs(first)
 
-    pipe.predict(X)
-    via_pipeline = np.concatenate(seen)
-    seen.clear()
     Trainer(verbose=0).predict(pipe, DataModule(X, y, split=(0.0, 0.0, 1.0)))
 
-    np.testing.assert_allclose(np.concatenate(seen), via_pipeline)
+    np.testing.assert_allclose(np.concatenate(seen), X * np.pi, rtol=1e-6)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -143,12 +143,12 @@ def test_pipeline_test_agrees_with_trainer_predict_on_the_test_split(backend):
 def test_passthrough_hands_the_head_the_backbones_input_unchanged(backend):
     _require(backend)
     pyqit.set_seed(0)
-    X, _ = _data()
+    X, y = _data()
     backbone, head = _vqc(2), _vqc(3)
     backbone_saw, head_saw = _record_inputs(backbone), _record_inputs(head)
     pipe = QuantumPipeline([PipelineStage(backbone, passthrough=True), head])
 
-    pipe.predict(X)
+    Trainer(verbose=0).predict(pipe, DataModule(X, y, split=(0.0, 0.0, 1.0)))
 
     np.testing.assert_allclose(head_saw[0][:, :2], backbone_saw[0])
 
@@ -166,8 +166,9 @@ def test_amplitude_encoded_stages_receive_unit_norm_states(backend):
         [PipelineStage(backbone, trainable=False), head], fit_mode="frozen_backbone"
     )
 
-    _trainer().fit(pipe, DataModule(X, y))
-    pipe.predict(X[:5])
+    dm = DataModule(X, y)
+    _trainer().fit(pipe, dm)
+    Trainer(verbose=0).predict(pipe, dm.for_prediction(X[:5]))
 
     assert backbone_saw and head_saw
     for batch in backbone_saw + head_saw:
@@ -203,9 +204,11 @@ def test_ensemble_of_identical_models_predicts_like_the_model(
         model, DataModule(X, y, split=(0.0, 0.0, 1.0)), return_format="numpy"
     )
 
-    np.testing.assert_array_equal(
-        np.ravel(pipe.predict(X, return_format="numpy")), np.ravel(alone)
+    together = Trainer(verbose=0).predict(
+        pipe, DataModule(X, y, split=(0.0, 0.0, 1.0)), return_format="numpy"
     )
+
+    np.testing.assert_array_equal(np.ravel(together), np.ravel(alone))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -215,10 +218,11 @@ def test_first_stage_can_read_a_column_subset_of_wider_data(backend):
     X, y = _data(n_features=4)
     first = _vqc(2)
     pipe = QuantumPipeline([PipelineStage(first, input_slice=[2, 3]), _vqc()])
-    _trainer().fit(pipe, DataModule(X, y))
+    dm = DataModule(X, y)
+    _trainer().fit(pipe, dm)
     seen = _record_inputs(first)
 
-    pipe.predict(X[:3])
+    Trainer(verbose=0).predict(pipe, dm.for_prediction(X[:3]))
 
     np.testing.assert_allclose(np.concatenate(seen), X[:3, [2, 3]] * np.pi, rtol=1e-6)
 

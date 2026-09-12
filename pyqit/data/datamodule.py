@@ -665,6 +665,34 @@ class DataModule:
         new_dm._is_setup = False
         return new_dm
 
+    def for_prediction(self, X) -> "DataModule":
+        """A predict-only DataModule over new raw rows, sharing this one's fitted state.
+
+        Keeps the fitted normalizer, `encoder` and `n_qubits`, so `Trainer.predict`
+        processes `X` exactly as it would this DataModule's own test split.
+
+        Parameters
+        ----------
+        X : array-like
+            Raw rows, the same kind of input this DataModule was built from.
+
+        Returns
+        -------
+        DataModule
+            Not yet set up; `Trainer.predict` sets it up with `stage="predict"`.
+
+        Examples
+        --------
+        >>> preds = trainer.predict(model, dm.for_prediction(X_new))  # doctest: +SKIP
+        """
+        new_dm = self.clone_empty()
+        new_dm.X_raw = np.asarray(X, dtype=np.float64)
+        if new_dm.X_raw.ndim == 1:
+            new_dm.X_raw = new_dm.X_raw.reshape(-1, 1)
+        new_dm.y_raw = np.zeros(len(new_dm.X_raw))
+        new_dm.split = (0.0, 0.0, 1.0)
+        return new_dm
+
     def _map_features(self, fn) -> "DataModule":
         new_dm = self.clone_empty()
         new_dm._X_train, new_dm._X_val, new_dm._X_test = _map_present(
