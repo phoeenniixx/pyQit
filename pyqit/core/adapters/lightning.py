@@ -108,14 +108,22 @@ class _LightningModelAdapter(LightningModule):
         )
         return loss
 
-    def validation_step(self, batch, batch_idx):
-        """Log ``val_loss`` and ``val_acc`` for one validation batch."""
+    def _eval_step(self, batch, prefix):
         X, y = batch
         preds = self(X)
         y = self._prepare_target(preds, y)
         loss = self.loss_fn(preds, y)
-        self.log("val_loss", loss, prog_bar=True, on_epoch=True)
-        self.log("val_acc", self._accuracy(preds, y), prog_bar=True, on_epoch=True)
+        self.log(f"{prefix}_loss", loss, prog_bar=True, on_epoch=True)
+        acc = self._accuracy(preds, y)
+        self.log(f"{prefix}_acc", acc, prog_bar=True, on_epoch=True)
+
+    def validation_step(self, batch, batch_idx):
+        """Log ``val_loss`` and ``val_acc`` for one validation batch."""
+        self._eval_step(batch, "val")
+
+    def test_step(self, batch, batch_idx):
+        """Log ``test_loss`` and ``test_acc`` for one test batch."""
+        self._eval_step(batch, "test")
 
     def configure_optimizers(self):
         import torch

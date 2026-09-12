@@ -28,10 +28,8 @@ class LightningLoop(BaseTrainingLoop):
 
     DEFAULT_ACCELERATOR = "cpu"
 
-    def fit(self, model, datamodule, state, callbacks: list) -> None:
-        """Fit through Lightning. See ``BaseTrainingLoop.fit``."""
-        from contextlib import nullcontext
-
+    @staticmethod
+    def _require_lightning() -> None:
         from skbase.utils.dependencies import _check_soft_dependencies
 
         if not _check_soft_dependencies(["lightning", "torch"], severity="none"):
@@ -40,6 +38,18 @@ class LightningLoop(BaseTrainingLoop):
                 "least one is not installed. Install them with "
                 "`pip install pyqit[all_extras]`."
             )
+
+    def _lightning_kwargs(self) -> dict:
+        extra = self._resolve_backend_kwargs()
+        extra.setdefault("accelerator", self.DEFAULT_ACCELERATOR)
+        extra.setdefault("enable_model_summary", False)
+        return extra
+
+    def fit(self, model, datamodule, state, callbacks: list) -> None:
+        """Fit through Lightning. See ``BaseTrainingLoop.fit``."""
+        from contextlib import nullcontext
+
+        self._require_lightning()
 
         from lightning.pytorch import Trainer as LightningTrainer
 
@@ -51,9 +61,7 @@ class LightningLoop(BaseTrainingLoop):
         from pyqit.core.trainer._reporting import lightning_log_level
 
         trainer = self.trainer
-        extra = self._resolve_backend_kwargs()
-        extra.setdefault("accelerator", self.DEFAULT_ACCELERATOR)
-        extra.setdefault("enable_model_summary", False)
+        extra = self._lightning_kwargs()
 
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(
@@ -82,3 +90,32 @@ class LightningLoop(BaseTrainingLoop):
             pl_trainer.fit(pl_model, datamodule=pl_data)
 
         self.reporter.success("Training complete.")
+
+    def evaluate(self, model, datamodule, split: str) -> dict:
+        """Run Lightning's ``validate``/``test``. See ``BaseTrainingLoop.evaluate``."""
+        self._require_lightning()
+
+        from lightning.pytorch import Trainer as LightningTrainer
+
+        from pyqit.core.adapters.lightning import _LightningModelAdapter
+        from pyqit.core.losses import get_loss_fn
+        from pyqit.core.trainer._reporting import lightning_log_level
+
+        trainer = self.trainer
+        loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
+        pl_model = _LightningModelAdapter(
+            model, trainer.learning_rate, trainer.optimizer, loss_func
+        )
+
+        with lightning_log_level(logging.WARNING):
+            pl_trainer = LightningTrainer(
+                logger=False,
+                enable_progress_bar=False,
+                enable_checkpointing=False,
+                **self._lightning_kwargs(),
+            )
+            run = pl_trainer.validate if split == "val" else pl_trainer.test
+            (metrics,) = run(
+                pl_model, datamodule=datamodule.to_lightning(), verbose=False
+            )
+        return {k: float(metrics[k]) for k in (f"{split}_loss", f"{split}_acc")}

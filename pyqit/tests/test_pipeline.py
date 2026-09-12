@@ -118,6 +118,27 @@ def test_trainer_predict_feeds_a_pipeline_what_pipeline_predict_does(backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_pipeline_test_agrees_with_trainer_predict_on_the_test_split(backend):
+    """The pipeline's own accuracy must match counting its predictions by hand."""
+    _require(backend)
+    pyqit.set_seed(0)
+    X, y = _data(n_samples=40)
+    dm = DataModule(X, y, split=(0.6, 0.2, 0.2), batch_size=8)
+    pipe = QuantumPipeline(
+        [PipelineStage(_vqc(), trainable=False), PipelineStage(_vqc())]
+    )
+    pipe.fit(dm, trainers=_trainer(), fit_mode="frozen_backbone")
+
+    metrics = pipe.test(dm)
+    val_metrics = pipe.validate(dm)
+
+    preds = np.ravel(_to_numpy(Trainer(verbose=0).predict(pipe, dm)))
+    expected_acc = np.mean(preds.astype(int) == dm.y_test.astype(int).ravel())
+    assert metrics["test_acc"] == pytest.approx(expected_acc)
+    assert set(val_metrics) == {"val_loss", "val_acc"}
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_passthrough_hands_the_head_the_backbones_input_unchanged(backend):
     _require(backend)
     pyqit.set_seed(0)

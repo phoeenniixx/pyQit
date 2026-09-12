@@ -23,6 +23,7 @@ decides how they get trained.
        mode="sequential",
    )
    pipe.fit(dm, trainers=pyqit.Trainer(max_epochs=20))
+   pipe.test(dm)                    # {"test_loss": ..., "test_acc": ...}
    preds = pipe.predict(X)          # raw arrays, not a DataModule
 
 Steps take either ``(name, model)`` tuples or :class:`PipelineStage` objects. A

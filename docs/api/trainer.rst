@@ -17,6 +17,8 @@ training loop chosen by the active backend.
    history = trainer.fit(model, dm)
 
    print(history.best_epoch, history.best_score)
+   trainer.validate(model, dm)             # {"val_loss": ..., "val_acc": ...}
+   trainer.test(model, dm)                 # {"test_loss": ..., "test_acc": ...}
    preds = trainer.predict(model, dm)      # runs on the test split
 
 :meth:`Trainer.fit` returns a :class:`TrainingHistory` holding ``train_loss``,
