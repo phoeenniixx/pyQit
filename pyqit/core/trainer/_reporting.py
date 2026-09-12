@@ -214,6 +214,14 @@ class Reporter:
 
         n_params = _count_params(model)
         table.add_row("Trainable Params", str(n_params) if n_params else "0")
+        if hasattr(model, "diff_methods"):
+            shots = getattr(model, "shots", None)
+            table.add_row(
+                "Device",
+                f"{model.device} ({shots} shots)" if shots else f"{model.device}",
+            )
+            methods = model.diff_methods(dm.X_train[:1])
+            table.add_row("Diff Method", ", ".join(dict.fromkeys(methods.values())))
         table.add_row("Optimizer", optimizer.upper())
         table.add_row("Learning Rate", str(lr))
 

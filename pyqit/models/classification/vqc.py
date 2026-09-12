@@ -128,7 +128,9 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
                 f"the wires to a single value."
             )
 
-        self.weight_keys = list(self.ansatz_obj.get_weight_shapes().keys())
+        weight_shapes = self.ansatz_obj.get_weight_shapes()
+        self.weight_keys = list(weight_shapes.keys())
+        init_weights = self.init_weights(weight_shapes)
 
         dev = qml.device(self.device, wires=self.n_qubits)
         primary_qnode = qml.set_shots(
@@ -137,7 +139,7 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
         )
 
         self.register_qnode(
-            "main_circuit", primary_qnode, self.ansatz_obj.get_weight_shapes()
+            "main_circuit", primary_qnode, weight_shapes, weights=init_weights
         )
 
     def __repr__(self):

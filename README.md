@@ -24,7 +24,7 @@ reference and the design notes. This page is the short version.
 
 ## Installation
 
-Not on PyPI yet.
+Not on PyPI yet. Install from source:
 
 ```bash
 git clone https://github.com/phoeenniixx/pyqit.git
@@ -33,6 +33,7 @@ cd pyqit
 pip install -e "."                # pennylane and numpy
 pip install -e ".[pytorch]"       # adds torch and pytorch lightning
 pip install -e ".[all_extras]"    # adds matplotlib and rich as well
+pip install -e ".[qiskit]"        # adds the PennyLane-Qiskit plugin
 ```
 
 Quote the extras. `zsh` treats bare brackets as a glob.
@@ -51,6 +52,7 @@ pyqit.set_seed(42)
 
 X, y = make_moons(n_samples=200, noise=0.1, random_state=0)
 
+# Nothing is split, normalized or prescaled until the Trainer calls setup().
 dm = pyqit.DataModule(X, y, normalize="minmax", batch_size=16)
 
 model = VQCClassifier(
@@ -81,6 +83,7 @@ Each item links to its page in the docs.
 - [Losses](https://pyqit.readthedocs.io/en/latest/api/losses.html). `mse`, `hinge`, `cross_entropy`, or any callable.
 - [Barren-plateau check](https://pyqit.readthedocs.io/en/latest/api/diagnostics.html). `Trainer(check_bp=True)` samples gradients at random weights before training and tells you whether their variance sits above the theoretical floor.
 - [Pipelines](https://pyqit.readthedocs.io/en/latest/api/pipeline.html). `QuantumPipeline` chains models or runs them as an ensemble.
+- [Devices](https://pyqit.readthedocs.io/en/latest/api/models.html#devices). `device=` takes any PennyLane device name, plugins included. The [PennyLane-Qiskit](https://docs.pennylane.ai/projects/qiskit/en/stable/) plugin is tested, and `Trainer(verbose=2)` prints which differentiation method a device gets.
 
 Tutorials walk through a [VQC end to end](https://pyqit.readthedocs.io/en/latest/tutorials/vqc.html),
 [callbacks and checkpoints](https://pyqit.readthedocs.io/en/latest/tutorials/callbacks.html)

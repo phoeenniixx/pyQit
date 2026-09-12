@@ -5,9 +5,10 @@ Pipelines
 .. currentmodule:: pyqit.core
 
 :class:`QuantumPipeline` composes several models into one object that still
-behaves like a model. Two things are configurable and they answer different
-questions. ``mode`` decides how stages relate to each other. ``fit_mode``
-decides how they get trained.
+behaves like a model, so the same :class:`~pyqit.Trainer` fits, evaluates and
+predicts it. Two things are configurable and they answer different questions.
+``mode`` decides how stages relate to each other. ``fit_mode`` decides how they
+get trained.
 
 .. code-block:: python
 
@@ -22,9 +23,11 @@ decides how they get trained.
        ],
        mode="sequential",
    )
-   pipe.fit(dm, trainers=pyqit.Trainer(max_epochs=20))
-   pipe.test(dm)                    # {"test_loss": ..., "test_acc": ...}
-   preds = pipe.predict(X)          # raw arrays, not a DataModule
+   trainer = pyqit.Trainer(max_epochs=20)
+   trainer.fit(pipe, dm)            # one TrainingHistory per trained stage
+   trainer.test(pipe, dm)           # {"test_loss": ..., "test_acc": ...}
+   preds = trainer.predict(pipe, dm)
+   preds = pipe.predict(X)          # raw arrays, re-normalized as in fit
 
 Steps take either ``(name, model)`` tuples or :class:`PipelineStage` objects. A
 bare model gets its class name as the stage name.
@@ -42,9 +45,9 @@ instead of once per batch. That is a large saving on a quantum circuit and the
 reason sequential fitting is practical at all.
 
 One consequence is worth knowing before you debug it. The rebuilt intermediate
-data is not prescaled again for the next stage's embedding. A downstream stage
-whose embedding needs prescaling fails the width check loudly instead of
-training on malformed input.
+data is unprescaled: the pipeline prescales each stage's input itself, exactly
+once, so a one-column output is zero-padded up to the next stage's width and an
+output wider than that stage accepts raises instead of being truncated.
 
 Ensemble mode
 =============
@@ -74,8 +77,10 @@ callable
 How stages get trained
 ======================
 
-``fit_mode`` applies to sequential pipelines only. Ensemble pipelines train each
-trainable stage independently on the same data, so there is nothing to sequence.
+``fit_mode`` is set on the pipeline and applies to sequential pipelines only.
+Ensemble pipelines train each trainable stage independently on the same data, so
+there is nothing to sequence. Every trainable stage trains under the one
+:class:`~pyqit.Trainer` handed to ``Trainer.fit``.
 
 ``"sequential_greedy"`` (default)
    Trains each stage in turn against the data produced by the stages before it.
@@ -98,7 +103,7 @@ Per-stage options
 ``passthrough``
    Concatenates the stage's input onto its output, so the next stage sees both.
    Useful when a stage refines features rather than replacing them, but it
-   widens the output, which the next stage's width check will hold you to.
+   widens the output, which must still fit the next stage's embedding.
 
 ``input_slice``
    Feeds only these input columns to the stage. Sequential mode only.
@@ -109,27 +114,25 @@ Per-stage options
 
    pipe = QuantumPipeline(
        [PipelineStage(backbone, trainable=False), PipelineStage(head)],
-       mode="sequential",
+       fit_mode="frozen_backbone",
    )
-   pipe.fit(dm, fit_mode="frozen_backbone")
+   pyqit.Trainer(max_epochs=20).fit(pipe, dm)
 
-Width checking
-==============
+Input width
+===========
 
-Every path validates what a stage receives, whether you arrive through
-``forward``, ``transform``, ``fit`` or ``predict``. The expected width depends on
-the embedding: an amplitude-encoded stage wants ``2 ** n_qubits`` features after
-prescaling, everything else wants one per wire.
+Each stage's input is prescaled for its embedding on every path, whether you
+arrive through ``forward``, ``transform``, ``fit`` or ``predict``. An
+amplitude-encoded stage takes up to ``2 ** n_qubits`` features, everything else
+up to one per wire; narrower input is zero-padded and wider input raises.
 
 Related
 =======
 
 Stages hold :doc:`models <models>`, and :doc:`embeddings` explains the width
-rules the checks enforce. :doc:`trainer` covers the ``trainers`` argument, which
-takes one :class:`Trainer` for every stage, or one per stage by position
-or name. The second
-half of the :doc:`VQC tutorial </tutorials/vqc>` builds a frozen-backbone
-pipeline end to end.
+rules. :doc:`trainer` covers the :class:`Trainer` that fits the pipeline. The
+second half of the :doc:`VQC tutorial </tutorials/vqc>` builds a
+frozen-backbone pipeline end to end.
 
 .. autosummary::
    :nosignatures:

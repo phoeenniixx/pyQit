@@ -16,6 +16,7 @@ from pyqit.utils.utils import _hard_labels, _restore_weights
 
 BACKENDS = ["pennylane", "torch"]
 SIMULATORS = ["default.qubit", "lightning.qubit", "default.mixed", "reference.qubit"]
+QISKIT_SIMULATORS = ["qiskit.aer", "qiskit.basicsim"]
 
 
 def _require(backend):
@@ -43,6 +44,39 @@ def _to_numpy(value):
     if type(value).__module__.startswith("torch"):
         return value.detach().cpu().numpy()
     return np.asarray(value)
+
+
+def _mse_gradient(model, X, y):
+    """Flat MSE gradient of ``model`` at its current weights, either backend."""
+    from pyqit.core.losses import get_loss_fn
+
+    if model.backend == "torch":
+        import torch
+
+        for param in model.weights.values():
+            param.grad = None
+        loss = get_loss_fn("mse", backend="torch")
+        loss(model.forward(torch.as_tensor(X)), torch.as_tensor(y)).backward()
+        return np.concatenate(
+            [_to_numpy(p.grad).ravel() for p in model.weights.values()]
+        )
+
+    import pennylane as qml
+    import pennylane.numpy as pnp
+
+    loss = get_loss_fn("mse", backend="pennylane")
+    keys = list(model.weights)
+
+    def cost(*weights):
+        preds = model.forward(
+            pnp.array(X, requires_grad=False), **dict(zip(keys, weights))
+        )
+        return loss(preds, pnp.array(y, requires_grad=False))
+
+    grads = qml.grad(cost)(
+        *[pnp.array(model.weights[k], requires_grad=True) for k in keys]
+    )
+    return np.concatenate([np.asarray(g).ravel() for g in grads])
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -425,7 +459,7 @@ def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
     """Written before restore_best rewrites the model, or 'last' would be best."""
     _require(backend)
     checkpoint = ModelCheckpoint(
-        dirpath=str(tmp_path), save_last=True, monitor="train_loss"
+        dirpath=str(tmp_path), save_last=True, monitor="train_loss", mode="max"
     )
     model = _model()
     Trainer(max_epochs=4, learning_rate=0.5, verbose=0, callbacks=[checkpoint]).fit(
@@ -435,7 +469,9 @@ def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
     last = _load(checkpoint.last_path)
     best = _load(checkpoint.best_path)
 
-    # restore_best defaults on, so the model now holds the best epoch.
+    # mode="max" pins "best" to the highest-loss epoch, the first one in any run
+    # that improves, so it cannot coincide with the last regardless of trajectory.
+    # restore_best defaults on, so the model now holds that epoch.
     assert _weights_equal(best, model.weights)
     assert not _weights_equal(last, best), "last must not be the restored best"
 
@@ -525,4 +561,89 @@ def test_every_analytic_simulator_gives_the_same_loss_curve(backend, device):
     for metric in ("train_loss", "val_loss"):
         np.testing.assert_allclose(
             getattr(curves[1], metric), getattr(curves[0], metric), rtol=1e-5
+        )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "device, shots, method",
+    [
+        ("default.qubit", None, "backprop"),
+        ("default.qubit", 100, "parameter-shift"),
+        ("lightning.qubit", None, "adjoint"),
+        ("reference.qubit", None, "parameter-shift"),
+    ],
+)
+def test_resolved_diff_method_follows_the_device_and_shots(
+    backend, device, shots, method
+):
+    """What "best" becomes is what a user on hardware pays for."""
+    _require(backend)
+    model = _model(device=device, shots=shots)
+
+    assert model.diff_methods(_dm().setup(n_qubits=3).X_train[:1]) == {
+        "main_circuit": method
+    }
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "device, per_sample", [("default.qubit", 1), ("reference.qubit", 1 + 2 * 9)]
+)
+def test_bp_check_reports_its_circuit_executions(backend, device, per_sample):
+    """One execution per gradient under backprop; 1 + 2 per parameter otherwise."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    model = _model(device=device)
+    dm = _dm().setup(n_qubits=3, encoder=type(model.embedding_obj))
+
+    result = check_barren_plateau(model, dm, num_samples=4, plot=False)
+
+    assert result.n_executions == 4 * per_sample
+    assert "Circuit Executions" in repr(result)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", QISKIT_SIMULATORS)
+def test_qiskit_simulators_train_and_agree_with_default_qubit_within_shot_noise(
+    backend, device
+):
+    """Check if qiskit plugin work correctly."""
+    pytest.importorskip("pennylane_qiskit")
+    _require(backend)
+    reference, candidate = _model(), _model(device=device, shots=4000)
+    _restore_weights(
+        candidate, {k: np.array(_to_numpy(v)) for k, v in reference.weights.items()}
+    )
+    dm = _dm().setup(n_qubits=3, encoder=type(reference.embedding_obj))
+    X, y = dm.X_train[:4], dm.y_train[:4].astype(np.float64)
+    X_in = X
+    if backend == "torch":
+        import torch
+
+        X_in = torch.as_tensor(X)
+
+    np.testing.assert_allclose(
+        _to_numpy(candidate.forward(X_in)),
+        _to_numpy(reference.forward(X_in)),
+        atol=0.05,
+    )
+    np.testing.assert_allclose(
+        _mse_gradient(candidate, X, y), _mse_gradient(reference, X, y), atol=0.02
+    )
+    history = Trainer(max_epochs=1, verbose=0).fit(candidate, dm)
+    assert np.isfinite(history.train_loss).all()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", SIMULATORS[1:])
+def test_same_seed_gives_the_same_starting_weights_on_every_simulator(backend, device):
+    """Devices draw from numpy's RNG at construction, so weights come first."""
+    _require(backend)
+    reference, candidate = _model(), _model(device=device)
+
+    for key, value in reference.weights.items():
+        np.testing.assert_array_equal(
+            _to_numpy(candidate.weights[key]), _to_numpy(value)
         )

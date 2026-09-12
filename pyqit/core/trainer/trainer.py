@@ -55,6 +55,9 @@ class Trainer(_PyQitObject):
     check_bp : bool, default False
         Run the barren-plateau gradient-variance check before training.
     bp_samples : int, default 200
+        Gradients sampled by the check. Each costs one circuit execution under
+        backprop and ``1 + 2 * n_params`` under parameter-shift, which is what
+        shot-based devices and hardware use. The result reports the count.
         Gradient samples drawn by that check.
     backend_kwargs : dict, optional
         Forwarded verbatim to ``lightning.pytorch.Trainer`` on the torch
@@ -101,21 +104,27 @@ class Trainer(_PyQitObject):
         self.backend = get_backend()
         self._print_summary = True
 
-    def fit(self, model: BaseModel, datamodule: DataModule) -> TrainingHistory:
+    def fit(
+        self, model: BaseModel | BaseMetaObject, datamodule: DataModule
+    ) -> TrainingHistory | dict:
         """Train ``model`` on ``datamodule``.
 
         Parameters
         ----------
-        model : BaseModel
-            Trained in place.
+        model : BaseModel or BaseMetaObject
+            Trained in place. A ``QuantumPipeline`` trains every trainable
+            stage in turn with this Trainer.
         datamodule : DataModule
             Set up here if it is not already.
 
         Returns
         -------
-        TrainingHistory
-            Per-epoch losses, accuracies and timings.
+        TrainingHistory or dict
+            Per-epoch losses, accuracies and timings; for a pipeline, one
+            ``TrainingHistory`` per trained stage keyed by stage name.
         """
+        if isinstance(model, BaseMetaObject):
+            return model.fit(datamodule, self)
         if self.seed is not None:
             set_seed(self.seed)
 
