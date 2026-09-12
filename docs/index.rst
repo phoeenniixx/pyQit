@@ -106,6 +106,11 @@ ensemble, including a frozen backbone with a trainable head.
 :doc:`Losses <api/losses>` with ``mse``, ``hinge`` and ``cross_entropy`` built
 in, and callables accepted anywhere a name is.
 
+Any PennyLane :doc:`device <api/models>`, plugins included. The
+PennyLane-Qiskit plugin is tested through its local simulators, and
+``Trainer(verbose=2)`` prints which differentiation method a device gets, since
+that is what decides whether a run takes seconds or a queue.
+
 Extending any of this means writing a class and tagging it. There is no
 registration step, and the test suite picks it up automatically. See
 :doc:`contributing`.
