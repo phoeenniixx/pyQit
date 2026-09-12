@@ -46,6 +46,39 @@ def _to_numpy(value):
     return np.asarray(value)
 
 
+def _mse_gradient(model, X, y):
+    """Flat MSE gradient of ``model`` at its current weights, either backend."""
+    from pyqit.core.losses import get_loss_fn
+
+    if model.backend == "torch":
+        import torch
+
+        for param in model.weights.values():
+            param.grad = None
+        loss = get_loss_fn("mse", backend="torch")
+        loss(model.forward(torch.as_tensor(X)), torch.as_tensor(y)).backward()
+        return np.concatenate(
+            [_to_numpy(p.grad).ravel() for p in model.weights.values()]
+        )
+
+    import pennylane as qml
+    import pennylane.numpy as pnp
+
+    loss = get_loss_fn("mse", backend="pennylane")
+    keys = list(model.weights)
+
+    def cost(*weights):
+        preds = model.forward(
+            pnp.array(X, requires_grad=False), **dict(zip(keys, weights))
+        )
+        return loss(preds, pnp.array(y, requires_grad=False))
+
+    grads = qml.grad(cost)(
+        *[pnp.array(model.weights[k], requires_grad=True) for k in keys]
+    )
+    return np.concatenate([np.asarray(g).ravel() for g in grads])
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("name", ["sgd", "SGD"])
 def test_optimizer_name_is_case_insensitive(backend, name):
@@ -576,7 +609,7 @@ def test_bp_check_reports_its_circuit_executions(backend, device, per_sample):
 def test_qiskit_simulators_train_and_agree_with_default_qubit_within_shot_noise(
     backend, device
 ):
-    """The plugin path: a third-party device class, shot-based, parameter-shift."""
+    """Check if qiskit plugin work correctly."""
     pytest.importorskip("pennylane_qiskit")
     _require(backend)
     reference, candidate = _model(), _model(device=device, shots=4000)
@@ -584,14 +617,20 @@ def test_qiskit_simulators_train_and_agree_with_default_qubit_within_shot_noise(
         candidate, {k: np.array(_to_numpy(v)) for k, v in reference.weights.items()}
     )
     dm = _dm().setup(n_qubits=3, encoder=type(reference.embedding_obj))
-    X = dm.X_train[:4]
+    X, y = dm.X_train[:4], dm.y_train[:4].astype(np.float64)
+    X_in = X
     if backend == "torch":
         import torch
 
-        X = torch.as_tensor(X)
+        X_in = torch.as_tensor(X)
 
     np.testing.assert_allclose(
-        _to_numpy(candidate.forward(X)), _to_numpy(reference.forward(X)), atol=0.05
+        _to_numpy(candidate.forward(X_in)),
+        _to_numpy(reference.forward(X_in)),
+        atol=0.05,
+    )
+    np.testing.assert_allclose(
+        _mse_gradient(candidate, X, y), _mse_gradient(reference, X, y), atol=0.02
     )
     history = Trainer(max_epochs=1, verbose=0).fit(candidate, dm)
     assert np.isfinite(history.train_loss).all()
