@@ -16,6 +16,7 @@ from pyqit.utils.utils import _hard_labels, _restore_weights
 
 BACKENDS = ["pennylane", "torch"]
 SIMULATORS = ["default.qubit", "lightning.qubit", "default.mixed", "reference.qubit"]
+QISKIT_SIMULATORS = ["qiskit.aer", "qiskit.basicsim"]
 
 
 def _require(backend):
@@ -528,6 +529,72 @@ def test_every_analytic_simulator_gives_the_same_loss_curve(backend, device):
         np.testing.assert_allclose(
             getattr(curves[1], metric), getattr(curves[0], metric), rtol=1e-5
         )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "device, shots, method",
+    [
+        ("default.qubit", None, "backprop"),
+        ("default.qubit", 100, "parameter-shift"),
+        ("lightning.qubit", None, "adjoint"),
+        ("reference.qubit", None, "parameter-shift"),
+    ],
+)
+def test_resolved_diff_method_follows_the_device_and_shots(
+    backend, device, shots, method
+):
+    """What "best" becomes is what a user on hardware pays for."""
+    _require(backend)
+    model = _model(device=device, shots=shots)
+
+    assert model.diff_methods(_dm().setup(n_qubits=3).X_train[:1]) == {
+        "main_circuit": method
+    }
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    "device, per_sample", [("default.qubit", 1), ("reference.qubit", 1 + 2 * 9)]
+)
+def test_bp_check_reports_its_circuit_executions(backend, device, per_sample):
+    """One execution per gradient under backprop; 1 + 2 per parameter otherwise."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    model = _model(device=device)
+    dm = _dm().setup(n_qubits=3, encoder=type(model.embedding_obj))
+
+    result = check_barren_plateau(model, dm, num_samples=4, plot=False)
+
+    assert result.n_executions == 4 * per_sample
+    assert "Circuit Executions" in repr(result)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("device", QISKIT_SIMULATORS)
+def test_qiskit_simulators_train_and_agree_with_default_qubit_within_shot_noise(
+    backend, device
+):
+    """The plugin path: a third-party device class, shot-based, parameter-shift."""
+    pytest.importorskip("pennylane_qiskit")
+    _require(backend)
+    reference, candidate = _model(), _model(device=device, shots=4000)
+    _restore_weights(
+        candidate, {k: np.array(_to_numpy(v)) for k, v in reference.weights.items()}
+    )
+    dm = _dm().setup(n_qubits=3, encoder=type(reference.embedding_obj))
+    X = dm.X_train[:4]
+    if backend == "torch":
+        import torch
+
+        X = torch.as_tensor(X)
+
+    np.testing.assert_allclose(
+        _to_numpy(candidate.forward(X)), _to_numpy(reference.forward(X)), atol=0.05
+    )
+    history = Trainer(max_epochs=1, verbose=0).fit(candidate, dm)
+    assert np.isfinite(history.train_loss).all()
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

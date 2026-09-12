@@ -47,6 +47,10 @@ pytorch = [
   "lightning",
 ]
 
+qiskit = [
+  "pennylane-qiskit",
+]
+
 dev = [
   "pydocstyle",
   # checks and make tools

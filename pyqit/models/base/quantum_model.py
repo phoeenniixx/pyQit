@@ -134,6 +134,37 @@ class BaseQuantumModel(BaseModel):
     def forward(self, X):
         """Run the model on a batch and return its raw output."""
 
+    def diff_methods(self, X) -> dict:
+        """Differentiation method PennyLane resolves ``"best"`` to, per QNode.
+
+        ``backprop`` and ``adjoint`` are simulator-only; a device with shots or
+        real hardware resolves to ``parameter-shift``, which costs two circuit
+        executions per parameter for every gradient.
+
+        Parameters
+        ----------
+        X : array-like
+            One prescaled batch; only its shape matters.
+
+        Returns
+        -------
+        dict
+            QNode name to method name.
+        """
+        from pennylane.workflow import get_best_diff_method
+
+        methods = {}
+        for name, node in self._qnodes.items():
+            qnode = node.qnode if self.backend == "torch" else node["node"]
+            prefix = f"{name}."
+            weights = {
+                k.removeprefix(prefix): v
+                for k, v in self.weights.items()
+                if k.startswith(prefix)
+            }
+            methods[name] = get_best_diff_method(qnode)(X, **weights)
+        return methods
+
     @property
     def weights(self):
         """Flat ``{"<qnode_name>.<weight_name>": array}`` dict, both backends."""

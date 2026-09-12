@@ -1,3 +1,4 @@
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import logging
 
@@ -28,6 +29,10 @@ class BPResult:
     is_barren : bool
     classical_variance : float, optional
         Set only for hybrid models with classical weight layers.
+    n_executions : int, optional
+        Circuit executions the sampling cost, as counted by the device: one
+        per sample under backprop, one plus two per parameter under
+        parameter-shift. `None` when the model runs no QNode.
     """
 
     n_qubits: int
@@ -39,6 +44,7 @@ class BPResult:
     is_barren: bool
     quantum_variance: float
     classical_variance: float | None = None
+    n_executions: int | None = None
 
     def __repr__(self) -> str:
         has_rich = _check_soft_dependencies("rich", severity="none")
@@ -73,6 +79,8 @@ class BPResult:
 
         table.add_row("Qubits", str(self.n_qubits), "")
         table.add_row("Samples", str(self.n_samples), "")
+        if self.n_executions is not None:
+            table.add_row("Circuit Executions", str(self.n_executions), "")
         table.add_row(
             "Expected Variance", f"{self.expected_variance:.2e}", "[dim]Baseline[/]"
         )
@@ -112,6 +120,8 @@ class BPResult:
             f"{'Expected Variance':<25} : {self.expected_variance:.2e} (Baseline)",
             f"{'Quantum Variance':<25} : {self.quantum_variance:.2e}",
         ]
+        if self.n_executions is not None:
+            lines.insert(6, f"{'Circuit Executions':<25} : {self.n_executions}")
 
         if self.classical_variance is not None:
             lines.append(f"{'Classical Variance':<25} : {self.classical_variance:.2e}")
@@ -194,14 +204,15 @@ def check_barren_plateau(
         f"Running Barren Plateau Diagnostic | Model: {type(model).__name__} | "
         f"Backend: {backend} | Samples: {num_samples}"
     )
-    if backend == "torch":
-        layer_gradients = _sample_gradients_torch(
-            model, X, y_target, all_keys, num_samples, loss_name
-        )
-    else:
-        layer_gradients = _sample_gradients_pennylane(
-            model, X, y_target, all_keys, num_samples, loss_name
-        )
+    with _track_executions(model) as executions:
+        if backend == "torch":
+            layer_gradients = _sample_gradients_torch(
+                model, X, y_target, all_keys, num_samples, loss_name
+            )
+        else:
+            layer_gradients = _sample_gradients_pennylane(
+                model, X, y_target, all_keys, num_samples, loss_name
+            )
     layer_variances = {k: float(np.var(grads)) for k, grads in layer_gradients.items()}
     layer_ratios = {k: v / expected_variance for k, v in layer_variances.items()}
 
@@ -238,12 +249,31 @@ def check_barren_plateau(
         is_barren=is_barren,
         quantum_variance=quantum_variance,
         classical_variance=classical_variance,
+        n_executions=executions.get("executions"),
     )
 
     if plot:
         _plot(layer_gradients, quantum_keys, result)
 
     return result
+
+
+@contextmanager
+def _track_executions(model):
+    """Count circuit executions on every device the model's QNodes run on."""
+    import pennylane as qml
+
+    nodes = getattr(model, "_qnodes", {}).values()
+    devices = {
+        (node["node"] if isinstance(node, dict) else node.qnode).device
+        for node in nodes
+    }
+    totals = {}
+    with ExitStack() as stack:
+        trackers = [stack.enter_context(qml.Tracker(dev)) for dev in devices]
+        yield totals
+    if trackers:
+        totals["executions"] = sum(t.totals.get("executions", 0) for t in trackers)
 
 
 def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):

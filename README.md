@@ -107,6 +107,22 @@ Lightning's own constructor is not mirrored onto `Trainer`. It carries roughly f
 parameters, most of which a PennyLane optimizer loop cannot honour. The accelerator
 defaults to `"cpu"`, so a GPU is used only when you ask for one.
 
+## Devices
+
+`device=` goes straight to `qml.device`, so any PennyLane device name works, plugins
+included. The defaults assume a local analytic simulator. `default.qubit` with
+`shots=None` differentiates by backprop and `lightning.qubit` by adjoint. Give a device
+shots, or point it at real hardware, and PennyLane falls back to parameter-shift, which
+runs `1 + 2 * n_params` circuits for every gradient. `Trainer(verbose=2)` prints the
+device and the method it picked in the model summary.
+
+```python
+model = VQCClassifier(n_qubits=4, device="qiskit.aer", shots=1024)
+model.diff_methods(dm.X_train[:1])     # {"main_circuit": "parameter-shift"}
+```
+
+`pip install pyqit[qiskit]` adds the Qiskit plugin.
+
 ## Callbacks and checkpointing
 
 ```python
@@ -179,6 +195,7 @@ history = trainer.fit(model, dm)
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
 │ Qubits                      │        4 │                │
 │ Samples                     │      200 │                │
+│ Circuit Executions          │      200 │                │
 │ Expected Variance           │ 1.56e-02 │       Baseline │
 │ Quantum Variance            │ 3.74e-03 │ BARREN PLATEAU │
 ├─────────────────────────────┼──────────┼────────────────┤
@@ -186,8 +203,11 @@ history = trainer.fit(model, dm)
 └─────────────────────────────┴──────────┴────────────────┘
 ```
 
-Gradients are sampled at uniformly random weights and their variance compared against
-`1/2**n_qubits` for a local cost or `1/(3·4^(n-1))` for a global one. Call
+The check samples gradients at uniformly random weights and compares their variance
+against `1/2**n_qubits` for a local cost or `1/(3·4^(n-1))` for a global one. It also
+counts the circuit executions it ran. Under backprop that is one per sample. Under
+parameter-shift it is `1 + 2 * n_params` per sample, which adds up fast on hardware, so
+lower `bp_samples` before pointing it at a queue. Call
 `check_barren_plateau(model, dm)` from `pyqit.utils.diagnostic` if you want the `BPResult`
 without training. The table falls back to ASCII when `rich` is not installed.
 

@@ -55,6 +55,9 @@ class Trainer(_PyQitObject):
     check_bp : bool, default False
         Run the barren-plateau gradient-variance check before training.
     bp_samples : int, default 200
+        Gradients sampled by the check. Each costs one circuit execution under
+        backprop and ``1 + 2 * n_params`` under parameter-shift, which is what
+        shot-based devices and hardware use. The result reports the count.
         Gradient samples drawn by that check.
     backend_kwargs : dict, optional
         Forwarded verbatim to ``lightning.pytorch.Trainer`` on the torch

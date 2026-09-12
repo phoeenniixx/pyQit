@@ -47,6 +47,29 @@ same on both backends:
 ``update_weights`` writes that dict back. It is a no-op under torch, where
 autograd owns the parameters directly.
 
+Devices
+=======
+
+``device=`` goes straight to ``qml.device``, so any PennyLane device name works,
+plugins included. ``shots=None`` asks for analytic simulation, and the defaults
+assume a local analytic simulator. PennyLane picks the differentiation method
+per device. ``default.qubit`` gets backprop, ``lightning.qubit`` adjoint, and
+any device with shots, or real hardware, parameter-shift. Parameter-shift runs
+``1 + 2 * n_params`` circuits for every gradient, so a model that trains in
+seconds locally can take hours on a queue. ``diff_methods`` tells you which
+method you are getting, and ``Trainer(verbose=2)`` prints it in the model
+summary next to the device.
+
+.. code-block:: python
+
+   model = VQCClassifier(n_qubits=4, device="qiskit.aer", shots=1024)
+   model.diff_methods(dm.X_train[:1])   # {"main_circuit": "parameter-shift"}
+
+``pip install pyqit[qiskit]`` adds the Qiskit plugin. Its local simulators
+sample even at ``shots=None``, where they run 1024 shots, so expect
+parameter-shift and shot noise there. No real QPU has been run against pyqit
+yet.
+
 Writing a new model
 ===================
 

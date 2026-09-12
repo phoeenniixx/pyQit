@@ -34,6 +34,7 @@ Or call it directly when you want the :class:`BPResult` without training:
    ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
    │ Qubits                      │        4 │                │
    │ Samples                     │      200 │                │
+   │ Circuit Executions          │      200 │                │
    │ Expected Variance           │ 1.56e-02 │       Baseline │
    │ Quantum Variance            │ 3.74e-03 │ BARREN PLATEAU │
    ├─────────────────────────────┼──────────┼────────────────┤
@@ -48,9 +49,12 @@ fewer measured wires than qubits, uses ``1 / 2 ** n_qubits``. A global cost uses
 ``1 / (3 * 4 ** (n_qubits - 1))``, which shrinks much faster. Classifier models
 scale the baseline further through their ``bp_scale_factor`` tag.
 
-Sampling costs one gradient evaluation per sample, so ``bp_samples`` trades
-runtime for a steadier variance estimate. The table renders through rich when it
-is installed and falls back to ASCII when it is not.
+Each sample costs one gradient, and what a gradient costs depends on the device.
+Under backprop it is one circuit execution. Under parameter-shift, which
+shot-based devices and hardware use, it is ``1 + 2 * n_params``. The result
+counts the executions the device ran and reports them as ``n_executions``, so
+you know what ``bp_samples`` bought. The table renders through rich when it is
+installed and falls back to ASCII when it is not.
 
 Related
 =======

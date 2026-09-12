@@ -138,6 +138,31 @@ jobs:
         shell: bash
         run: python -m pytest
 
+  pytest-qiskit:
+    name: qiskit-plugin
+    needs: code-quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # pennylane-qiskit pins PennyLane >=0.44, which needs Python >=3.11,
+      # so this runs on one interpreter rather than the matrix.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev,qiskit]"
+
+      - name: Show dependencies
+        run: python -m pip list
+
+      - name: Run pytest
+        run: python -m pytest
+
   pytest-all-extras:
     name: Run pytest
     needs: pytest-nosoftdeps
