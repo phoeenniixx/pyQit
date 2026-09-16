@@ -33,6 +33,10 @@ function:
 ``IQPEmbedding``
    One feature per wire, like the angle case.
 
+``ZZFeatureMap``
+   One feature per wire, like the angle case. The Havlicek et al. (2019) map
+   that Qiskit's ``VQC`` uses; not the same circuit as ``IQPEmbedding``.
+
 Prescaling is stateless and runs after normalization, which is stateful and fits
 on the training split only. Nothing here is fitted, so no information leaks
 between splits.
@@ -58,8 +62,10 @@ width rules between stages.
    AngleEmbedding
    AmplitudeEmbedding
    IQPEmbedding
+   ZZFeatureMap
 
 .. autoclass:: BaseEmbedding
 .. autoclass:: AngleEmbedding
 .. autoclass:: AmplitudeEmbedding
 .. autoclass:: IQPEmbedding
+.. autoclass:: ZZFeatureMap

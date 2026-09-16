@@ -37,7 +37,11 @@ class BaseQuantumModel(BaseModel):
         return "torch" if self.backend == "torch" else "autograd"
 
     def init_weights(self, weight_shapes: dict) -> dict:
-        """Draw uniform ``[0, 2pi)`` starting weights from numpy's global RNG.
+        """Draw uniform ``[0, 1)`` starting weights from numpy's global RNG.
+
+        The range matches Qiskit ML's default ``initial_point`` and PennyLane's
+        template examples; uniform ``[0, 2pi)`` is the Haar-like regime where
+        gradients vanish (McClean et al. 2018).
 
         Call this before building the device: a PennyLane device seeded
         ``"global"`` consumes numpy's RNG at construction by a device-dependent
@@ -54,7 +58,7 @@ class BaseQuantumModel(BaseModel):
         dict
         """
         return {
-            w: pnp.random.uniform(0, 2 * pnp.pi, size=s, requires_grad=True)
+            w: pnp.random.uniform(0, 1, size=s, requires_grad=True)
             for w, s in weight_shapes.items()
         }
 
@@ -72,23 +76,26 @@ class BaseQuantumModel(BaseModel):
             Weight name to shape, as returned by an ansatz's
             `get_weight_shapes`.
         weights : dict, optional
-            Starting weights from `init_weights`; drawn here when omitted.
-            Ignored under torch, where `TorchLayer` initializes from torch's RNG.
+            Starting weights from `init_weights`; drawn here when omitted, so
+            both backends start from the same point for the same seed.
         """
+        if weights is None:
+            weights = self.init_weights(weight_shapes)
         if self.backend == "torch" and _check_soft_dependencies(
             ["torch"], severity="none"
         ):
-            torch_layer = qml.qnn.TorchLayer(qnode, weight_shapes)
+            import torch
+
+            init = {
+                w: torch.tensor(pnp.asarray(v), dtype=torch.get_default_dtype())
+                for w, v in weights.items()
+            }
+            torch_layer = qml.qnn.TorchLayer(qnode, weight_shapes, init_method=init)
             setattr(self, name, torch_layer)
             self._qnodes[name] = torch_layer
         else:
             setattr(self, name, qnode)
-            self._qnodes[name] = {
-                "node": qnode,
-                "weights": self.init_weights(weight_shapes)
-                if weights is None
-                else weights,
-            }
+            self._qnodes[name] = {"node": qnode, "weights": weights}
 
     def execute_qnode(self, name: str, X, **custom_weights):
         """Run the QNode registered under `name` on a batch.

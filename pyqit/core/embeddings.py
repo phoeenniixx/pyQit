@@ -118,3 +118,51 @@ class IQPEmbedding(BaseEmbedding):
     def get_test_params(cls):
         """List constructor kwargs used to parametrize this class in the test suite."""
         return [{"n_qubits": 2}]
+
+
+class ZZFeatureMap(BaseEmbedding):
+    """The second-order Pauli-Z feature map of Havlicek et al. (2019).
+
+    Parameters
+    ----------
+    n_qubits : int
+    n_repeats : int, default 2
+        Repetitions of the map, Qiskit's default.
+
+    References
+    ----------
+    Havlicek et al., "Supervised learning with quantum-enhanced feature
+    spaces", Nature 567, 209 (2019).
+    """
+
+    _tags = {
+        "embedding_type": "zz",
+        "differentiable": True,
+        "prescale": "angle_pi",
+        "n_qubits_min": 2,
+    }
+
+    def __init__(self, n_qubits: int, n_repeats: int = 2):
+        self.n_repeats = n_repeats
+        super().__init__(n_qubits=n_qubits)
+
+    def forward(self, inputs):
+        """Apply the feature map. Expects one feature per wire."""
+        wires = range(self.n_qubits)
+        for _ in range(self.n_repeats):
+            for i in wires:
+                qml.Hadamard(wires=i)
+                qml.RZ(2.0 * inputs[..., i], wires=i)
+            for i in wires:
+                for j in range(i + 1, self.n_qubits):
+                    phase = (
+                        2.0
+                        * (qml.numpy.pi - inputs[..., i])
+                        * (qml.numpy.pi - inputs[..., j])
+                    )
+                    qml.MultiRZ(phase, wires=[i, j])
+
+    @classmethod
+    def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
+        return [{"n_qubits": 2}, {"n_qubits": 3, "n_repeats": 1}]
