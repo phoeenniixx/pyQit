@@ -67,3 +67,32 @@ class TestAllAnsatz(BaseFixtureGenerator):
 
         assert isinstance(result, torch.Tensor), "Output must be a torch.Tensor"
         assert result.requires_grad, "The computational graph was broken"
+
+
+@pytest.mark.parametrize("name", ["real_amplitudes", "efficient_su2"])
+@pytest.mark.parametrize("entanglement", ["reverse_linear", "full", "circular"])
+@pytest.mark.parametrize("n_qubits, reps, skip_final", [(2, 1, False), (4, 3, True)])
+def test_hardware_efficient_ansatz_matches_qiskit_reference_circuit(
+    name, entanglement, n_qubits, reps, skip_final
+):
+    """The wrapped circuit prepares the same state as Qiskit's, wire order included."""
+    pytest.importorskip("pennylane_qiskit")
+    from qiskit.quantum_info import Statevector
+
+    from pyqit.ansatzes import EfficientSU2Ansatz, RealAmplitudesAnsatz
+
+    cls = RealAmplitudesAnsatz if name == "real_amplitudes" else EfficientSU2Ansatz
+    ansatz = cls(n_qubits, reps, entanglement, skip_final)
+    theta = np.random.default_rng(n_qubits).uniform(
+        0, 2 * np.pi, ansatz.get_weight_shapes()["weights"]
+    )
+    reference = ansatz.circuit.assign_parameters(theta)
+    reference_state = Statevector(reference).reverse_qargs().data
+
+    @qml.qnode(qml.device("default.qubit", wires=n_qubits))
+    def state(w):
+        ansatz.build_circuit({"weights": w})
+        return qml.state()
+
+    fidelity = abs(np.vdot(state(theta), reference_state)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-10)
