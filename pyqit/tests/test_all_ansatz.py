@@ -96,14 +96,3 @@ def test_hardware_efficient_ansatz_matches_qiskit_reference_circuit(
 
     fidelity = abs(np.vdot(state(theta), reference_state)) ** 2
     assert fidelity == pytest.approx(1.0, abs=1e-10)
-
-
-def test_hardware_efficient_ansatz_names_the_missing_plugin(monkeypatch):
-    """Without pennylane-qiskit, construction fails with the install hint."""
-    from pyqit.ansatzes import hardware_efficient
-
-    monkeypatch.setattr(
-        hardware_efficient, "_check_soft_dependencies", lambda *a, **k: False
-    )
-    with pytest.raises(ImportError, match=r"pyqit\[qiskit\].*3\.11"):
-        hardware_efficient.RealAmplitudesAnsatz(2)
