@@ -7,7 +7,7 @@ class BaseModel(_PyQitObject):
     """Base class for all trainable models in PyQit."""
 
     _tags = {
-        "object_type": "model",  # "ansatz" | "hybrid" | "kernel" | "classical"
+        "object_type": "model",
         "is_quantum": True,
         "n_qubits": None,
         "differentiable": True,

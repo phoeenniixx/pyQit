@@ -264,10 +264,8 @@ def _track_executions(model):
     import pennylane as qml
 
     nodes = getattr(model, "_qnodes", {}).values()
-    devices = {
-        (node["node"] if isinstance(node, dict) else node.qnode).device
-        for node in nodes
-    }
+    qnodes = (model._qnode_of(node) for node in nodes)
+    devices = {qnode.device for qnode in qnodes if qnode is not None}
     totals = {}
     with ExitStack() as stack:
         trackers = [stack.enter_context(qml.Tracker(dev)) for dev in devices]
@@ -386,14 +384,12 @@ def _resolve_input(datamodule_or_X, y, model):
 
 
 def _split_weight_keys(model):
+    """Flat weight keys split into those of QNodes and those of classical layers."""
     all_keys = list(model.weights.keys())
-    if model.get_tag("object_type", "ansatz") != "hybrid":
-        return all_keys, []
-
-    q_keys = set(getattr(model, "weight_keys", all_keys))
-    return [k for k in all_keys if k in q_keys], [
-        k for k in all_keys if k not in q_keys
-    ]
+    nodes = getattr(model, "_qnodes", {})
+    classical = {name for name, node in nodes.items() if model._qnode_of(node) is None}
+    q_keys = [k for k in all_keys if k.split(".", 1)[0] not in classical]
+    return q_keys, [k for k in all_keys if k not in q_keys]
 
 
 def _plot(layer_gradients, quantum_keys, result: BPResult):

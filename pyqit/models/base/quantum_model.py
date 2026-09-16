@@ -8,6 +8,10 @@ from pyqit.core.config import get_backend
 from pyqit.models.base.base import BaseModel
 
 
+def _dense(X, weight, bias):
+    return qml.math.tensordot(X, weight, axes=[[-1], [-1]]) + bias
+
+
 class BaseQuantumModel(BaseModel):
     """Base class wiring a PennyLane QNode into either backend.
 
@@ -97,8 +101,58 @@ class BaseQuantumModel(BaseModel):
             setattr(self, name, qnode)
             self._qnodes[name] = {"node": qnode, "weights": weights}
 
+    def init_dense_weights(self, n_in: int, n_out: int) -> dict:
+        """Draw ``torch.nn.Linear``'s default init from numpy's global RNG.
+
+        Uniform ``[-1/sqrt(n_in), 1/sqrt(n_in))`` for weight and bias, so both
+        backends start a dense layer from the same point for the same seed.
+        """
+        bound = 1.0 / n_in**0.5
+        return {
+            "weight": pnp.random.uniform(
+                -bound, bound, size=(n_out, n_in), requires_grad=True
+            ),
+            "bias": pnp.random.uniform(-bound, bound, size=n_out, requires_grad=True),
+        }
+
+    def register_dense(self, name: str, n_in: int, n_out: int, weights=None):
+        """Register a classical dense layer ``X @ weight.T + bias`` under `name`.
+
+        Lives in the same registry as the QNodes, so ``weights``,
+        ``update_weights``, checkpoints and the flat-kwargs routing cover it
+        with no further plumbing. Run it with ``execute_qnode``.
+
+        Parameters
+        ----------
+        name : str
+        n_in, n_out : int
+        weights : dict, optional
+            ``{"weight", "bias"}`` from `init_dense_weights`; drawn when omitted.
+        """
+        if weights is None:
+            weights = self.init_dense_weights(n_in, n_out)
+        if self.backend == "torch" and _check_soft_dependencies(
+            ["torch"], severity="none"
+        ):
+            import torch
+
+            layer = torch.nn.Linear(n_in, n_out)
+            with torch.no_grad():
+                for w_name, value in weights.items():
+                    getattr(layer, w_name).copy_(torch.as_tensor(pnp.asarray(value)))
+            setattr(self, name, layer)
+            self._qnodes[name] = layer
+        else:
+            self._qnodes[name] = {"node": _dense, "weights": weights}
+
+    @staticmethod
+    def _qnode_of(node):
+        """The ``qml.QNode`` behind a registry entry, or None for a classical layer."""
+        qnode = node["node"] if isinstance(node, dict) else getattr(node, "qnode", None)
+        return qnode if isinstance(qnode, qml.QNode) else None
+
     def execute_qnode(self, name: str, X, **custom_weights):
-        """Run the QNode registered under `name` on a batch.
+        """Run the QNode or dense layer registered under `name` on a batch.
 
         Parameters
         ----------
@@ -115,6 +169,8 @@ class BaseQuantumModel(BaseModel):
         """
         if self.backend == "torch":
             layer = getattr(self, name)
+            if self._qnode_of(layer) is None:
+                return layer(X.to(next(layer.parameters()).dtype))
             if self.shots is None:
                 return layer(X)
             import torch
@@ -160,9 +216,12 @@ class BaseQuantumModel(BaseModel):
         """
         from pennylane.workflow import get_best_diff_method
 
+        X = qml.math.asarray(X, like=self.get_interface())
         methods = {}
         for name, node in self._qnodes.items():
-            qnode = node.qnode if self.backend == "torch" else node["node"]
+            qnode = self._qnode_of(node)
+            if qnode is None:
+                continue
             prefix = f"{name}."
             weights = {
                 k.removeprefix(prefix): v
