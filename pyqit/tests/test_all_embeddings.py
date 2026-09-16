@@ -57,3 +57,27 @@ class TestAllEmbeddings(BaseFixtureGenerator):
 
         result = dummy_qnode(x_single_torch)
         assert isinstance(result, torch.Tensor), "Output must be a torch.Tensor"
+
+
+@pytest.mark.parametrize("n_qubits, n_repeats", [(2, 1), (3, 2), (4, 2)])
+def test_zz_feature_map_matches_qiskit_reference_circuit(n_qubits, n_repeats):
+    """The hand-built Havlicek map prepares the same state as Qiskit's."""
+    pytest.importorskip("qiskit")
+    from qiskit.circuit.library import ZZFeatureMap as QiskitZZFeatureMap
+    from qiskit.quantum_info import Statevector
+
+    from pyqit.core import ZZFeatureMap
+
+    x = np.random.default_rng(n_qubits).uniform(0, np.pi, n_qubits)
+    reference = QiskitZZFeatureMap(n_qubits, reps=n_repeats).assign_parameters(x)
+    reference_state = Statevector(reference).reverse_qargs().data
+
+    embedding = ZZFeatureMap(n_qubits, n_repeats=n_repeats)
+
+    @qml.qnode(qml.device("default.qubit", wires=n_qubits))
+    def state(inputs):
+        embedding.forward(inputs)
+        return qml.state()
+
+    fidelity = abs(np.vdot(state(x), reference_state)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-10)

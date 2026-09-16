@@ -7,7 +7,12 @@ from pyqit.core.callbacks import (
     ModelCheckpoint,
 )
 from pyqit.core.config import get_backend, set_backend, set_seed
-from pyqit.core.embeddings import AmplitudeEmbedding, AngleEmbedding, IQPEmbedding
+from pyqit.core.embeddings import (
+    AmplitudeEmbedding,
+    AngleEmbedding,
+    IQPEmbedding,
+    ZZFeatureMap,
+)
 from pyqit.core.losses import (
     BaseLoss,
     CrossEntropyLoss,
@@ -30,6 +35,7 @@ __all__ = [
     "AmplitudeEmbedding",
     "AngleEmbedding",
     "IQPEmbedding",
+    "ZZFeatureMap",
     "measure_probs",
     "measure_expval_z",
     "measure_expval_x",

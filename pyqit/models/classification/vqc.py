@@ -1,5 +1,6 @@
 import inspect
 
+import numpy as np
 import pennylane as qml
 
 from pyqit.ansatzes.sel import SELAnsatz
@@ -27,8 +28,9 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
     encoder : type, default AngleEmbedding
         Embedding class, not an instance. Drives `DataModule` prescaling.
     n_classes : int, default 2
-        Binary reads one expectation value; multi-class reads a probability
-        vector over `2 ** n_qubits` basis states.
+        Binary reads one expectation value; multi-class bins the
+        `2 ** n_qubits` basis-state probabilities by index modulo `n_classes`,
+        the Qiskit ML `VQC` readout.
     measure_fn : callable, optional
         Defaults to `measure_expval_z` for binary, `measure_probs` otherwise.
     measure_wires : list of int, optional
@@ -174,19 +176,17 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
 
         if self.n_classes == 2:
             return (raw_output + 1.0) / 2.0
-        else:
-            if raw_output.ndim == 1:
-                class_probs = raw_output[: self.n_classes]
-            else:
-                class_probs = raw_output[:, : self.n_classes]
-            import pennylane.math as qml_math
-
-            return class_probs / qml_math.sum(class_probs, axis=-1, keepdims=True)
+        bins = np.eye(self.n_classes)[np.arange(raw_output.shape[-1]) % self.n_classes]
+        return qml.math.dot(raw_output, qml.math.cast_like(bins, raw_output))
 
     @classmethod
     def get_test_params(cls):
         """List constructor kwargs used to parametrize this class in the test suite."""
-        from pyqit.core.embeddings import AmplitudeEmbedding, IQPEmbedding
+        from pyqit.core.embeddings import (
+            AmplitudeEmbedding,
+            IQPEmbedding,
+            ZZFeatureMap,
+        )
 
         return [
             {},
@@ -196,7 +196,7 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
                 "n_classes": 2,
                 "ansatz": SELAnsatz,
                 "encoder": IQPEmbedding,
-                "trainer_kwargs": {"check_bp": True},
+                "trainer_kwargs": {"check_bp": True, "loss_fn": "hinge"},
             },
             {
                 "n_qubits": 4,
@@ -206,4 +206,5 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
                 "encoder": AmplitudeEmbedding,
                 "trainer_kwargs": {"loss_fn": "cross_entropy"},
             },
+            {"n_qubits": 3, "n_layers": 1, "encoder": ZZFeatureMap},
         ]

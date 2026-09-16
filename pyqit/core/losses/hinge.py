@@ -8,7 +8,8 @@ def hinge_loss(preds, targets):
     Parameters
     ----------
     preds : array-like
-        The predicted raw scores (logits) from the model.
+        Class-1 probabilities from the model, mapped back to signed scores
+        in ``[-1, 1]`` so a confident correct prediction reaches zero loss.
     targets : array-like
         The ground truth binary labels, expected to be encoded as 0 or 1.
 
@@ -17,7 +18,8 @@ def hinge_loss(preds, targets):
     float or tensor
         The computed mean hinge loss across the batch."""
     y_signed = 2.0 * targets - 1.0
-    return pnp.mean(pnp.maximum(0, 1 - y_signed * preds))
+    scores = 2.0 * preds - 1.0
+    return pnp.mean(pnp.maximum(0, 1 - scores * y_signed))
 
 
 class HingeLoss(BaseLoss):
@@ -32,4 +34,5 @@ class HingeLoss(BaseLoss):
         import torch
 
         y_signed = 2.0 * targets.to(preds.dtype) - 1.0
-        return torch.clamp(1.0 - y_signed * preds, min=0.0).mean()
+        scores = 2.0 * preds - 1.0
+        return torch.clamp(1.0 - y_signed * scores, min=0.0).mean()
