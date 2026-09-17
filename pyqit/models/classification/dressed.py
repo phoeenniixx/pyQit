@@ -1,10 +1,12 @@
 import numpy as np
-import pennylane as qml
-import pennylane.numpy as pnp
 
+from pyqit.ansatzes.cnot_ladder import CNOTLadderAnsatz
+from pyqit.core.embeddings import HadamardAngleEmbedding
+from pyqit.core.pipeline import QuantumPipeline
 from pyqit.models.base.quantum_model import BaseQuantumModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
-from pyqit.models.layers.dense import init_dense_weights
+from pyqit.models.layers.stages import DenseClassifier, DenseLayer, QuantumLayer
+from pyqit.utils.utils import _restore_weights
 
 
 class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
@@ -13,10 +15,15 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
     A classical layer maps ``n_features`` to ``n_qubits`` angles through
     ``tanh(.) * pi / 2``; the circuit applies a Hadamard layer, encodes the
     angles with RY, then ``n_layers`` blocks of a CNOT ladder followed by an
-    RY layer, and reads ``<Z>`` on every wire, computed from the basis-state
-    probabilities so the QNode returns one tensor on both backends; a second
-    classical layer maps those to the classes. There is no separate
-    embedding, so the DataModule does not prescale.
+    RY layer, and reads ``<Z>`` on every wire; a second classical layer maps
+    those to the classes. There is no separate embedding on the model, so the
+    DataModule does not prescale.
+
+    Inside, the network is a `QuantumPipeline` of three layers from
+    ``pyqit.models.layers``: a `DenseLayer`, a `QuantumLayer` with
+    `HadamardAngleEmbedding` and `CNOTLadderAnsatz`, and a `DenseClassifier`.
+    Their weights are this model's, under ``pre_net.*``, ``quantum.*`` and
+    ``post_net.*``. Compose those layers yourself for a different hybrid.
 
     The head differs from the paper in one way: pyqit models emit
     probabilities, so binary applies a sigmoid to one logit and multi-class a
@@ -25,7 +32,6 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
     Parameters
     ----------
     n_features : int
-        Input width. ``forward`` raises on any other width.
     n_qubits : int, default 4
     n_layers : int, default 6
         Variational depth, ``q_depth`` in the paper.
@@ -51,6 +57,12 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
     >>> history = pyqit.Trainer(max_epochs=5).fit(model, dm)  # doctest: +SKIP
     """
 
+    _LAYER_ENTRY = {
+        "pre_net": "dense",
+        "quantum": "main_circuit",
+        "post_net": "dense",
+    }
+
     def __init__(
         self,
         n_features,
@@ -68,26 +80,26 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
         self.n_classes = n_classes
         self.q_delta = q_delta
 
-        n_out = 1 if n_classes == 2 else n_classes
-        pre = init_dense_weights(n_features, n_qubits)
-        q_shapes = {"weights": (n_layers, n_qubits)}
-        q_init = {
-            "weights": pnp.array(
-                q_delta * np.random.randn(n_layers, n_qubits), requires_grad=True
-            )
-        }
-        post = init_dense_weights(n_qubits, n_out)
-        bits = (np.arange(2**n_qubits)[:, None] >> np.arange(n_qubits)[::-1]) & 1
-        self._z_from_probs = 1.0 - 2.0 * bits
-
-        dev = qml.device(self.device, wires=self.n_qubits)
-        qnode = qml.set_shots(
-            qml.QNode(self._circuit, dev, interface=self.get_interface()),
-            shots=self.shots,
+        pre_net = DenseLayer(n_features, n_qubits, activation="tanh")
+        q_init = q_delta * np.random.randn(n_layers, n_qubits)
+        post_net = DenseClassifier(n_qubits, n_classes=n_classes)
+        quantum = QuantumLayer(
+            n_qubits=n_qubits,
+            n_layers=n_layers,
+            ansatz=CNOTLadderAnsatz,
+            encoder=HadamardAngleEmbedding,
+            device=device,
+            shots=shots,
         )
-        self.register_dense("pre_net", n_features, n_qubits, weights=pre)
-        self.register_qnode("quantum", qnode, q_shapes, weights=q_init)
-        self.register_dense("post_net", n_qubits, n_out, weights=post)
+        _restore_weights(quantum, {"main_circuit.weights": q_init})
+
+        layers = {"pre_net": pre_net, "quantum": quantum, "post_net": post_net}
+        self._pipeline = QuantumPipeline(list(layers.items()))
+        for name, layer in layers.items():
+            entry = layer._qnodes[self._LAYER_ENTRY[name]]
+            self._qnodes[name] = entry
+            if self.backend == "torch":
+                setattr(self, name, entry)
 
     def __repr__(self):
         return (
@@ -95,21 +107,6 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
             f"n_qubits={self.n_qubits}, n_layers={self.n_layers}, "
             f"n_classes={self.n_classes}, device='{self.device}')"
         )
-
-    def _circuit(self, inputs, weights):
-        wires = range(self.n_qubits)
-        for w in wires:
-            qml.Hadamard(wires=w)
-        for w in wires:
-            qml.RY(inputs[..., w], wires=w)
-        for layer in range(self.n_layers):
-            for i in range(0, self.n_qubits - 1, 2):
-                qml.CNOT(wires=[i, i + 1])
-            for i in range(1, self.n_qubits - 1, 2):
-                qml.CNOT(wires=[i, i + 1])
-            for w in wires:
-                qml.RY(weights[layer, w], wires=w)
-        return qml.probs(wires=wires)
 
     def forward(self, X, **custom_weights):
         """Run dense, circuit, dense and return class probabilities.
@@ -132,14 +129,11 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
                 f"X has {X.shape[-1]} features but the model was built for "
                 f"n_features={self.n_features}."
             )
-        q_in = qml.math.tanh(self.execute_qnode("pre_net", X, **custom_weights))
-        probs = self.execute_qnode("quantum", q_in * (np.pi / 2.0), **custom_weights)
-        q_out = qml.math.dot(probs, qml.math.cast_like(self._z_from_probs, probs))
-        logits = self.execute_qnode("post_net", q_out, **custom_weights)
-        if self.n_classes == 2:
-            return 1.0 / (1.0 + qml.math.exp(-logits[..., 0]))
-        exp = qml.math.exp(logits - qml.math.max(logits, axis=-1, keepdims=True))
-        return exp / qml.math.sum(exp, axis=-1, keepdims=True)
+        routed = {}
+        for key, value in custom_weights.items():
+            name, weight = key.split(".", 1)
+            routed[f"{name}.{self._LAYER_ENTRY[name]}.{weight}"] = value
+        return self._pipeline.forward(X, **routed)
 
     @classmethod
     def get_test_params(cls):

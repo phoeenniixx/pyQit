@@ -24,7 +24,8 @@ get trained.
        mode="sequential",
    )
    trainer = pyqit.Trainer(max_epochs=20)
-   trainer.fit(pipe, dm)            # one TrainingHistory per trained stage
+   trainer.fit(pipe, dm)            # one TrainingHistory per trained stage,
+                                    # a single one under fit_mode="joint"
    trainer.test(pipe, dm)           # {"test_loss": ..., "test_acc": ...}
    preds = trainer.predict(pipe, dm)
    preds = trainer.predict(pipe, dm.for_prediction(X_new))   # new raw rows
@@ -90,6 +91,54 @@ there is nothing to sequence. Every trainable stage trains under the one
    Trains only the final stage. Every non-final stage must have
    ``trainable=False``, and the pipeline raises if one does not. Use this when
    the earlier stages are a pretrained feature map and you only want a new head.
+
+``"joint"``
+   Trains every trainable stage at once against the final stage's loss, and
+   returns a single ``TrainingHistory``. Gradients pass through every stage,
+   frozen ones included, so a stage in front of a frozen circuit still learns.
+   Nothing is materialized. Every stage runs on every batch, which costs more
+   circuit executions than the other two modes. ``check_bp`` is rejected here.
+   Run ``check_barren_plateau`` on the quantum stage's model instead.
+
+Hybrid networks
+===============
+
+:class:`~pyqit.models.DressedQuantumClassifier` is the hybrid to start with. It
+is the dense, circuit, dense network of Mari et al. (2020), a model that runs a
+pipeline of three layers inside, so you fit it like any other model.
+
+.. code-block:: python
+
+   from pyqit.models import DressedQuantumClassifier
+
+   model = DressedQuantumClassifier(n_features=8, n_qubits=4, n_layers=6)
+   history = pyqit.Trainer(max_epochs=20).fit(model, dm)
+
+For a different network, compose the :doc:`layers <layers>` in
+``pyqit.models.layers`` yourself
+and train them with ``fit_mode="joint"``.
+:class:`~pyqit.models.layers.DenseLayer` is a classical stage,
+:class:`~pyqit.models.layers.QuantumLayer` returns ``<Z>`` of every wire for
+any ansatz and encoder, and :class:`~pyqit.models.layers.DenseClassifier` is a
+classical head. Any model can be a stage too, so this puts a dense layer in
+front of a quantum classifier:
+
+.. code-block:: python
+
+   from pyqit.models import VQCClassifier
+   from pyqit.models.layers import DenseLayer
+
+   hybrid = QuantumPipeline(
+       [
+           ("reduce", DenseLayer(n_features=8, n_out=4, activation="tanh")),
+           ("classify", VQCClassifier(n_qubits=4, n_layers=2)),
+       ],
+       fit_mode="joint",
+   )
+
+The pipeline prescales each stage's input for its embedding. A ``tanh`` layer
+feeding ``HadamardAngleEmbedding`` gives angles in ``(-pi/2, pi/2)`` as in the
+paper, and feeding ``AngleEmbedding`` gives ``(-pi, pi)``.
 
 Per-stage options
 =================

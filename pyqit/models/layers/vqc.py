@@ -1,5 +1,6 @@
 import inspect
 
+import numpy as np
 import pennylane as qml
 
 from pyqit.ansatzes.sel import SELAnsatz
@@ -7,11 +8,45 @@ from pyqit.core.embeddings import AngleEmbedding
 from pyqit.models.base.quantum_model import BaseQuantumModel
 
 
-class _VQC(BaseQuantumModel):
-    """An embedding, an ansatz, a measurement: the circuit shared by the VQC models.
+def z_from_probs(n_qubits: int):
+    """Matrix ``M`` with ``probs @ M`` the ``<Z>`` of every wire, wire 0 first.
 
-    Subclasses set ``_measure_fn`` and ``_measure_wires`` in
-    ``_resolve_readout`` and map the raw output in ``forward``.
+    Reading ``qml.probs`` and projecting keeps the QNode's output one tensor
+    on both backends; a tuple of ``qml.expval`` comes back from ``TorchLayer``
+    in a version-dependent shape.
+    """
+    bits = (np.arange(2**n_qubits)[:, None] >> np.arange(n_qubits)[::-1]) & 1
+    return 1.0 - 2.0 * bits
+
+
+class BaseVQC(BaseQuantumModel):
+    """An embedding, an ansatz, a measurement: the circuit the VQC models share.
+
+    Builds the ansatz and the embedding from their classes, draws the weights,
+    and registers one QNode under ``main_circuit``. It has no readout of its
+    own, so you subclass it and never instantiate it directly. A subclass
+    implements ``_resolve_readout(n_qubits, measure_fn, measure_wires)``,
+    which sets ``_measure_fn`` and ``_measure_wires``, and ``forward``, which
+    runs ``execute_qnode("main_circuit", X, **custom_weights)`` and maps the
+    raw output. `VQCClassifier`, `VQCRegressor` and `QuantumLayer` differ only
+    in those two methods.
+
+    Parameters
+    ----------
+    n_qubits : int, default 4
+    n_layers : int, default 3
+        Depth passed to `ansatz`.
+    ansatz : type, default SELAnsatz
+        Ansatz class, not an instance.
+    encoder : type, default AngleEmbedding
+        Embedding class, not an instance. Stored as ``embedding_obj``, which
+        drives prescaling.
+    measure_fn : callable, optional
+        Handed to ``_resolve_readout``, which picks the default.
+    measure_wires : list of int, optional
+        Handed to ``_resolve_readout``, which picks the default.
+    device : str, default "default.qubit"
+    shots : int, optional
     """
 
     def __init__(

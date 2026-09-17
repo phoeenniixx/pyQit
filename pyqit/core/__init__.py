@@ -10,6 +10,7 @@ from pyqit.core.config import get_backend, set_backend, set_seed
 from pyqit.core.embeddings import (
     AmplitudeEmbedding,
     AngleEmbedding,
+    HadamardAngleEmbedding,
     IQPEmbedding,
     ZZFeatureMap,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "get_loss_fn",
     "AmplitudeEmbedding",
     "AngleEmbedding",
+    "HadamardAngleEmbedding",
     "IQPEmbedding",
     "ZZFeatureMap",
     "measure_probs",

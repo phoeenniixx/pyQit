@@ -60,6 +60,36 @@ and the DataModule prescales the input for it. A model that takes
 ``embedding_obj``, so the DataModule normalizes the features and leaves them
 unscaled.
 
+Hybrid networks are pipelines
+=============================
+
+A hybrid model mixes classical and quantum layers in one network and trains
+them together. Every hybrid model here is built the same way. It is a
+:class:`BaseQuantumModel` that builds its layers from ``pyqit.models.layers``
+and runs them through a :doc:`pipeline <pipeline>` inside ``forward``. Its
+class page names the paper it follows and the layers it uses.
+
+From the outside it is an ordinary model. The same :class:`~pyqit.Trainer`
+fits, checkpoints and evaluates it, ``check_bp`` runs on it, and it can be a
+stage in a larger pipeline. The layers' weights are the model's own and sit in
+the same flat dict as any other model's, under one prefix per layer.
+
+.. code-block:: python
+
+   from pyqit.models import DressedQuantumClassifier
+
+   model = DressedQuantumClassifier(n_features=8, n_qubits=4, n_layers=6)
+   history = pyqit.Trainer(max_epochs=20).fit(model, dm)
+   model.weights            # one prefix per layer
+
+A hybrid model takes ``n_features`` instead of an encoder. The DataModule
+normalizes its input and leaves it unscaled, and the pipeline inside prescales
+each quantum layer's input for that layer's embedding.
+
+The :doc:`layers <layers>` in ``pyqit.models.layers`` are reusable blocks, used
+by quantum and hybrid models alike. The :doc:`pipeline page <pipeline>` shows
+how to compose and train them yourself.
+
 Weights exist before training
 =============================
 

@@ -27,6 +27,7 @@ Each page gives the circuit, how many features it takes and how the
 
    AngleEmbedding
    AmplitudeEmbedding
+   HadamardAngleEmbedding
    IQPEmbedding
    ZZFeatureMap
 

@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import pennylane as qml
 
 logger = logging.getLogger("pyqit.diagnostics")
 logger.setLevel(logging.INFO)
@@ -19,8 +20,7 @@ def _to_numpy(x) -> np.ndarray:
 def _ensure_col(out):
     if _is_torch(out):
         return out.unsqueeze(-1) if out.dim() == 1 else out
-    out = np.asarray(out)
-    return out.reshape(-1, 1) if out.ndim == 1 else out
+    return qml.math.reshape(out, (-1, 1)) if qml.math.ndim(out) == 1 else out
 
 
 def _cat(a, b, axis: int = 1):
@@ -32,7 +32,7 @@ def _cat(a, b, axis: int = 1):
         if not _is_torch(a):
             a = torch.as_tensor(a, dtype=b.dtype, device=b.device)
         return torch.cat([a, b], dim=axis)
-    return np.concatenate([a, b], axis=axis)
+    return qml.math.concatenate([a, b], axis=axis)
 
 
 def _stack(tensors):

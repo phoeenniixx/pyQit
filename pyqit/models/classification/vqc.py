@@ -1,10 +1,10 @@
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
-from pyqit.models.layers.vqc import _VQC
+from pyqit.models.layers.vqc import BaseVQC
 
 
-class VQCClassifier(_VQC, ClassifierMixin):
+class VQCClassifier(BaseVQC, ClassifierMixin):
     """Variational quantum classifier: an embedding, an ansatz, a measurement.
 
     Parameters

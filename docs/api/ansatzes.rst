@@ -26,6 +26,7 @@ gates in one layer and the shape of its weights.
 
    SELAnsatz
    BasicEntanglerAnsatz
+   CNOTLadderAnsatz
    SimplifiedTwoDesignAnsatz
    RealAmplitudesAnsatz
    EfficientSU2Ansatz

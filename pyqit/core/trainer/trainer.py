@@ -1,7 +1,10 @@
 """The Trainer: configuration, orchestration and backend dispatch."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 from skbase.base import BaseMetaObject
@@ -14,7 +17,9 @@ from pyqit.core.trainer._reporting import Reporter
 from pyqit.core.trainer.history import TrainingHistory
 from pyqit.core.trainer.loops import get_training_loop
 from pyqit.data.datamodule import DataModule
-from pyqit.models.base.base import BaseModel
+
+if TYPE_CHECKING:
+    from pyqit.models.base.base import BaseModel
 
 
 class Trainer(_PyQitObject):
@@ -125,6 +130,10 @@ class Trainer(_PyQitObject):
         """
         if isinstance(model, BaseMetaObject):
             return model._fit(datamodule, self)
+        return self._fit_model(model, datamodule)
+
+    def _fit_model(self, model, datamodule: DataModule) -> TrainingHistory:
+        """Train anything exposing ``weights``, ``forward`` and ``update_weights``."""
         if self.seed is not None:
             set_seed(self.seed)
 
