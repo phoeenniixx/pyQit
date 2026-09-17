@@ -114,7 +114,8 @@ pipeline of three layers inside, so you fit it like any other model.
    model = DressedQuantumClassifier(n_features=8, n_qubits=4, n_layers=6)
    history = pyqit.Trainer(max_epochs=20).fit(model, dm)
 
-For a different network, compose the layers in ``pyqit.models.layers`` yourself
+For a different network, compose the :doc:`layers <layers>` in
+``pyqit.models.layers`` yourself
 and train them with ``fit_mode="joint"``.
 :class:`~pyqit.models.layers.DenseLayer` is a classical stage,
 :class:`~pyqit.models.layers.QuantumLayer` returns ``<Z>`` of every wire for

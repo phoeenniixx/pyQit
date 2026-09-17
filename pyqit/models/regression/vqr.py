@@ -3,11 +3,11 @@ import pennylane.numpy as pnp
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_parity_z
-from pyqit.models.layers.vqc import _VQC
+from pyqit.models.layers.vqc import BaseVQC
 from pyqit.models.regression.regressor_mixin import RegressorMixin
 
 
-class VQCRegressor(_VQC, RegressorMixin):
+class VQCRegressor(BaseVQC, RegressorMixin):
     """Variational quantum regressor: the ``VQCClassifier`` circuit read as a value.
 
     The circuit is Qiskit ML's ``VQR``: feature map, ansatz, and the parity

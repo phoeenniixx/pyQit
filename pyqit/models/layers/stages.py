@@ -6,7 +6,7 @@ from pyqit.core.measurements import measure_probs
 from pyqit.models.base.base import BaseModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
 from pyqit.models.layers.dense import ACTIVATIONS, to_probabilities
-from pyqit.models.layers.vqc import _VQC, z_from_probs
+from pyqit.models.layers.vqc import BaseVQC, z_from_probs
 
 
 class DenseLayer(BaseModel):
@@ -98,7 +98,7 @@ class DenseClassifier(BaseModel, ClassifierMixin):
         return [{"n_features": 3}, {"n_features": 4, "n_classes": 3}]
 
 
-class QuantumLayer(_VQC):
+class QuantumLayer(BaseVQC):
     """Quantum stage: an embedding, an ansatz, and ``<Z>`` read on every wire.
 
     Emits ``(n_samples, n_qubits)`` features in ``[-1, 1]``, so it is a

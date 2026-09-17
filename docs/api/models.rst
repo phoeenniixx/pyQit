@@ -63,12 +63,16 @@ unscaled.
 Hybrid networks are pipelines
 =============================
 
-:class:`DressedQuantumClassifier` is the dressed quantum circuit of Mari et al.
-(2020), a circuit between two dense layers. It trains like any other model.
-Inside it runs a :doc:`pipeline <pipeline>` of three layers, and their weights
-are the model's own, in the same flat dict under ``pre_net.*``, ``quantum.*``
-and ``post_net.*``. It takes ``n_features`` instead of an encoder, and the
-DataModule leaves its input unscaled.
+A hybrid model mixes classical and quantum layers in one network and trains
+them together. Every hybrid model here is built the same way. It is a
+:class:`BaseQuantumModel` that builds its layers from ``pyqit.models.layers``
+and runs them through a :doc:`pipeline <pipeline>` inside ``forward``. Its
+class page names the paper it follows and the layers it uses.
+
+From the outside it is an ordinary model. The same :class:`~pyqit.Trainer`
+fits, checkpoints and evaluates it, ``check_bp`` runs on it, and it can be a
+stage in a larger pipeline. The layers' weights are the model's own and sit in
+the same flat dict as any other model's, under one prefix per layer.
 
 .. code-block:: python
 
@@ -76,13 +80,15 @@ DataModule leaves its input unscaled.
 
    model = DressedQuantumClassifier(n_features=8, n_qubits=4, n_layers=6)
    history = pyqit.Trainer(max_epochs=20).fit(model, dm)
+   model.weights            # one prefix per layer
 
-Its stages come from ``pyqit.models.layers``, the building blocks for a hybrid
-of your own. :class:`~pyqit.models.layers.DenseLayer` and
-:class:`~pyqit.models.layers.QuantumLayer` emit features, and
-:class:`~pyqit.models.layers.DenseClassifier` is the classical head that turns
-the last features into class probabilities. A layer is a pipeline stage and
-cannot be fit alone.
+A hybrid model takes ``n_features`` instead of an encoder. The DataModule
+normalizes its input and leaves it unscaled, and the pipeline inside prescales
+each quantum layer's input for that layer's embedding.
+
+The :doc:`layers <layers>` in ``pyqit.models.layers`` are reusable blocks, used
+by quantum and hybrid models alike. The :doc:`pipeline page <pipeline>` shows
+how to compose and train them yourself.
 
 Weights exist before training
 =============================

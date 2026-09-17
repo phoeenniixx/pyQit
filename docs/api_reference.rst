@@ -10,6 +10,7 @@ The API reference for every public class and function in PyQit.
    api/trainer
    api/datamodule
    api/models
+   api/layers
    api/ansatzes
    api/embeddings
    api/measurements
