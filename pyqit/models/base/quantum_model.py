@@ -6,10 +6,7 @@ from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.core.config import get_backend
 from pyqit.models.base.base import BaseModel
-
-
-def _dense(X, weight, bias):
-    return qml.math.tensordot(X, weight, axes=[[-1], [-1]]) + bias
+from pyqit.models.layers.dense import dense, init_dense_weights
 
 
 class BaseQuantumModel(BaseModel):
@@ -101,20 +98,6 @@ class BaseQuantumModel(BaseModel):
             setattr(self, name, qnode)
             self._qnodes[name] = {"node": qnode, "weights": weights}
 
-    def init_dense_weights(self, n_in: int, n_out: int) -> dict:
-        """Draw ``torch.nn.Linear``'s default init from numpy's global RNG.
-
-        Uniform ``[-1/sqrt(n_in), 1/sqrt(n_in))`` for weight and bias, so both
-        backends start a dense layer from the same point for the same seed.
-        """
-        bound = 1.0 / n_in**0.5
-        return {
-            "weight": pnp.random.uniform(
-                -bound, bound, size=(n_out, n_in), requires_grad=True
-            ),
-            "bias": pnp.random.uniform(-bound, bound, size=n_out, requires_grad=True),
-        }
-
     def register_dense(self, name: str, n_in: int, n_out: int, weights=None):
         """Register a classical dense layer ``X @ weight.T + bias`` under `name`.
 
@@ -130,7 +113,7 @@ class BaseQuantumModel(BaseModel):
             ``{"weight", "bias"}`` from `init_dense_weights`; drawn when omitted.
         """
         if weights is None:
-            weights = self.init_dense_weights(n_in, n_out)
+            weights = init_dense_weights(n_in, n_out)
         if self.backend == "torch" and _check_soft_dependencies(
             ["torch"], severity="none"
         ):
@@ -143,7 +126,7 @@ class BaseQuantumModel(BaseModel):
             setattr(self, name, layer)
             self._qnodes[name] = layer
         else:
-            self._qnodes[name] = {"node": _dense, "weights": weights}
+            self._qnodes[name] = {"node": dense, "weights": weights}
 
     @staticmethod
     def _qnode_of(node):

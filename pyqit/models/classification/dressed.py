@@ -4,6 +4,7 @@ import pennylane.numpy as pnp
 
 from pyqit.models.base.quantum_model import BaseQuantumModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
+from pyqit.models.layers.dense import init_dense_weights
 
 
 class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
@@ -68,14 +69,14 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
         self.q_delta = q_delta
 
         n_out = 1 if n_classes == 2 else n_classes
-        pre = self.init_dense_weights(n_features, n_qubits)
+        pre = init_dense_weights(n_features, n_qubits)
         q_shapes = {"weights": (n_layers, n_qubits)}
         q_init = {
             "weights": pnp.array(
                 q_delta * np.random.randn(n_layers, n_qubits), requires_grad=True
             )
         }
-        post = self.init_dense_weights(n_qubits, n_out)
+        post = init_dense_weights(n_qubits, n_out)
         bits = (np.arange(2**n_qubits)[:, None] >> np.arange(n_qubits)[::-1]) & 1
         self._z_from_probs = 1.0 - 2.0 * bits
 

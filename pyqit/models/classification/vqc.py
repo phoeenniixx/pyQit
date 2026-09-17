@@ -1,7 +1,7 @@
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.embeddings import AngleEmbedding
-from pyqit.models.base.vqc import _VQC
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
+from pyqit.models.layers.vqc import _VQC
 
 
 class VQCClassifier(_VQC, ClassifierMixin):

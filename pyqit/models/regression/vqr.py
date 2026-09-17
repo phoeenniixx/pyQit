@@ -3,7 +3,7 @@ import pennylane.numpy as pnp
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.core.measurements import measure_parity_z
-from pyqit.models.base.vqc import _VQC
+from pyqit.models.layers.vqc import _VQC
 from pyqit.models.regression.regressor_mixin import RegressorMixin
 
 

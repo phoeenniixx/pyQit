@@ -105,6 +105,27 @@ Related
 the model against a :doc:`datamodule`. The
 :doc:`VQC tutorial </tutorials/vqc>` walks through building and training one.
 
+Available models
+================
+
+.. autosummary::
+   :nosignatures:
+
+   VQCClassifier
+   VQCRegressor
+   DataReuploadingClassifier
+   DressedQuantumClassifier
+
+.. autoclass:: VQCClassifier
+.. autoclass:: VQCRegressor
+.. autoclass:: DataReuploadingClassifier
+.. autoclass:: DressedQuantumClassifier
+
+Base classes and mixins
+=======================
+
+Subclass these to write a model; you never instantiate them directly.
+
 .. autosummary::
    :nosignatures:
 
@@ -112,16 +133,8 @@ the model against a :doc:`datamodule`. The
    BaseQuantumModel
    ClassifierMixin
    RegressorMixin
-   VQCClassifier
-   VQCRegressor
-   DataReuploadingClassifier
-   DressedQuantumClassifier
 
 .. autoclass:: BaseModel
 .. autoclass:: BaseQuantumModel
 .. autoclass:: ClassifierMixin
 .. autoclass:: RegressorMixin
-.. autoclass:: VQCClassifier
-.. autoclass:: VQCRegressor
-.. autoclass:: DataReuploadingClassifier
-.. autoclass:: DressedQuantumClassifier
