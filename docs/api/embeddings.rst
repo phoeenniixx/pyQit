@@ -26,6 +26,10 @@ function:
    Pads or truncates to ``n_qubits`` features, then multiplies by pi. One
    feature per wire.
 
+``HadamardAngleEmbedding``
+   One feature per wire, multiplied by pi / 2. The encoding of Mari et al.
+   (2020), a Hadamard layer followed by RY.
+
 ``AmplitudeEmbedding``
    Pads to ``2 ** n_qubits`` features, then L2-normalizes. Four qubits carry
    sixteen features, so this is the option for wide inputs.
@@ -60,12 +64,14 @@ width rules between stages.
 
    BaseEmbedding
    AngleEmbedding
+   HadamardAngleEmbedding
    AmplitudeEmbedding
    IQPEmbedding
    ZZFeatureMap
 
 .. autoclass:: BaseEmbedding
 .. autoclass:: AngleEmbedding
+.. autoclass:: HadamardAngleEmbedding
 .. autoclass:: AmplitudeEmbedding
 .. autoclass:: IQPEmbedding
 .. autoclass:: ZZFeatureMap

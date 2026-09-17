@@ -34,13 +34,33 @@ with its own ``n_qubits``, so the two cannot disagree about width.
 scaling. ``output_scale=False`` reproduces ``VQR``, whose targets must lie in
 ``[-1, 1]``. The loops record accuracy as NaN for it.
 
-Two models take ``n_features`` instead of an encoder, because they encode the
-input themselves and the DataModule leaves it unscaled.
-:class:`DataReuploadingClassifier` re-encodes the input inside every layer
-(Perez-Salinas et al. 2020), and :class:`DressedQuantumClassifier` sandwiches
-the circuit between two dense layers (Mari et al. 2020), the first hybrid. Its
-classical weights sit in the same flat dict as the circuit's, under
-``pre_net.*`` and ``post_net.*``.
+:class:`DataReuploadingClassifier` takes ``n_features`` instead of an encoder,
+because it re-encodes the input inside every layer (Perez-Salinas et al. 2020)
+and the DataModule leaves it unscaled.
+
+Hybrid networks are pipelines
+=============================
+
+:class:`DressedQuantumClassifier` is the dressed quantum circuit of Mari et al.
+(2020), a circuit between two dense layers. It trains like any other model.
+Inside it runs a :doc:`pipeline <pipeline>` of three layers, and their weights
+are the model's own, in the same flat dict under ``pre_net.*``, ``quantum.*``
+and ``post_net.*``. It takes ``n_features`` instead of an encoder, and the
+DataModule leaves its input unscaled.
+
+.. code-block:: python
+
+   from pyqit.models import DressedQuantumClassifier
+
+   model = DressedQuantumClassifier(n_features=8, n_qubits=4, n_layers=6)
+   history = pyqit.Trainer(max_epochs=20).fit(model, dm)
+
+Its stages come from ``pyqit.models.layers``, the building blocks for a hybrid
+of your own. :class:`~pyqit.models.layers.DenseLayer` and
+:class:`~pyqit.models.layers.QuantumLayer` emit features, and
+:class:`~pyqit.models.layers.DenseClassifier` is the classical head that turns
+the last features into class probabilities. A layer is a pipeline stage and
+cannot be fit alone.
 
 Weights exist before training
 =============================
@@ -120,6 +140,24 @@ Available models
 .. autoclass:: VQCRegressor
 .. autoclass:: DataReuploadingClassifier
 .. autoclass:: DressedQuantumClassifier
+
+Layers
+======
+
+.. currentmodule:: pyqit.models.layers
+
+.. autosummary::
+   :nosignatures:
+
+   DenseLayer
+   QuantumLayer
+   DenseClassifier
+
+.. autoclass:: DenseLayer
+.. autoclass:: QuantumLayer
+.. autoclass:: DenseClassifier
+
+.. currentmodule:: pyqit.models
 
 Base classes and mixins
 =======================

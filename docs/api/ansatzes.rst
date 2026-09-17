@@ -78,6 +78,7 @@ more layers.
    BaseAnsatz
    SELAnsatz
    BasicEntanglerAnsatz
+   CNOTLadderAnsatz
    SimplifiedTwoDesignAnsatz
    RealAmplitudesAnsatz
    EfficientSU2Ansatz
@@ -85,6 +86,7 @@ more layers.
 .. autoclass:: BaseAnsatz
 .. autoclass:: SELAnsatz
 .. autoclass:: BasicEntanglerAnsatz
+.. autoclass:: CNOTLadderAnsatz
 .. autoclass:: SimplifiedTwoDesignAnsatz
 .. autoclass:: RealAmplitudesAnsatz
 .. autoclass:: EfficientSU2Ansatz

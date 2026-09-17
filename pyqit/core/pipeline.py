@@ -6,7 +6,6 @@ from skbase.base import BaseMetaObject
 
 from pyqit.core.trainer import Trainer, console, has_rich
 from pyqit.data.datamodule import DataModule, _apply_prescale
-from pyqit.models.base.base import BaseModel
 from pyqit.utils.utils import (
     _cat,
     _count_params,
@@ -66,15 +65,33 @@ class QuantumPipeline(BaseMetaObject):
     Parameters
     ----------
     steps : list of PipelineStage, or list of (name, model)
-    mode : {"sequential", "ensemble"}, default "sequential"
-        Sequential feeds each stage's output to the next. Ensemble runs every
-        stage on the same input and combines the outputs.
-    aggregation : {"mean", "vote"} or callable, default "mean"
+    mode : str, default "sequential"
+        How the stages relate to each other, which decides what each stage
+        receives as input.
+
+        - ``"sequential"``: each stage's output is the next stage's input, and
+          the last stage's output is the pipeline's.
+        - ``"ensemble"``: every stage receives the same input and the outputs
+          are combined by `aggregation`.
+    aggregation : str or callable, default "mean"
         How ensemble outputs are combined. Ignored in sequential mode.
-    fit_mode : {"sequential_greedy", "frozen_backbone"}, default "sequential_greedy"
-        How sequential stages are trained. `frozen_backbone` trains only the
-        final stage and requires every other stage to have `trainable=False`.
-        Ignored in ensemble mode.
+
+        - ``"mean"``: averages the stage outputs.
+        - ``"vote"``: takes the majority of the stages' hard labels.
+        - callable: receives the list of raw stage outputs and returns the
+          combined output.
+    fit_mode : str, default "sequential_greedy"
+        How the stages of a sequential pipeline are trained, which decides
+        what loss each stage sees. Ignored in ensemble mode, where every
+        trainable stage trains independently on the same data.
+
+        - ``"sequential_greedy"``: trains each stage in turn against the
+          labels, on the output of the stages before it.
+        - ``"frozen_backbone"``: trains only the final stage. Every other
+          stage must have ``trainable=False``.
+        - ``"joint"``: trains every trainable stage at once against the final
+          stage's loss. Gradients pass through every stage, frozen ones
+          included. Use this for hybrid classical-quantum networks.
 
     Examples
     --------
@@ -84,6 +101,19 @@ class QuantumPipeline(BaseMetaObject):
     ...     fit_mode="frozen_backbone",
     ... )
     >>> pyqit.Trainer(max_epochs=20).fit(pipe, dm)  # doctest: +SKIP
+
+    A hybrid network, dense to circuit to dense, trained end to end:
+
+    >>> from pyqit.models.layers import DenseClassifier, DenseLayer, QuantumLayer
+    >>> hybrid = QuantumPipeline(
+    ...     [
+    ...         DenseLayer(n_features=8, n_out=4, activation="tanh"),
+    ...         QuantumLayer(n_qubits=4, n_layers=2),
+    ...         DenseClassifier(n_features=4),
+    ...     ],
+    ...     fit_mode="joint",
+    ... )
+    >>> history = pyqit.Trainer(max_epochs=20).fit(hybrid, dm)  # doctest: +SKIP
     """
 
     _tags = {
@@ -97,10 +127,10 @@ class QuantumPipeline(BaseMetaObject):
     ):
         if mode not in ("sequential", "ensemble"):
             raise ValueError(f"mode must be 'sequential' or 'ensemble', got {mode}.")
-        if fit_mode not in ("sequential_greedy", "frozen_backbone"):
+        if fit_mode not in ("sequential_greedy", "frozen_backbone", "joint"):
             raise ValueError(
-                "fit_mode must be 'sequential_greedy' or 'frozen_backbone', "
-                f"got {fit_mode}."
+                "fit_mode must be 'sequential_greedy', 'frozen_backbone' or "
+                f"'joint', got {fit_mode}."
             )
         self.steps = self._to_named_steps(steps)
         self.mode = mode
@@ -156,15 +186,9 @@ class QuantumPipeline(BaseMetaObject):
         """Shape ``X`` for ``stage``'s embedding, as ``DataModule.setup`` does."""
         n_qubits = getattr(stage.model, "n_qubits", None)
         prescale = self._prescale_of(stage.model)
-        if X is None or n_qubits is None or prescale in (None, "none"):
+        if X is None or n_qubits is None:
             return X
-
-        if _is_torch(X):
-            import torch
-
-            out = _apply_prescale(_to_numpy(X), prescale, n_qubits)
-            return torch.as_tensor(out, dtype=X.dtype, device=X.device)
-        return _apply_prescale(np.asarray(X), prescale, n_qubits)
+        return _apply_prescale(X, prescale, n_qubits)
 
     def _prepare_stage_input(self, X, stage):
         """Slice, then prescale, the input a stage is about to consume.
@@ -175,24 +199,61 @@ class QuantumPipeline(BaseMetaObject):
         """
         return self._prescale_for(stage, self._slice_input(X, stage.input_slice))
 
-    def _run_stage(self, stage, X, final=False):
-        """Run one sequential stage on ``X``; return what the next one receives.
+    def _run_stage(self, stage, X, **weights):
+        """Run one non-final stage on ``X``; return what the next one receives.
 
         Passthrough concatenates the unprescaled slice, not the prescaled input,
         so the next stage's prescaling is applied to it once rather than twice.
         """
         raw = self._slice_input(X, stage.input_slice)
         inp = self._prescale_for(stage, raw)
-        out = stage.model.predict_step(inp) if final else stage.model.forward(inp)
-        out = _ensure_col(out)
+        out = _ensure_col(stage.model.forward(inp, **weights))
         return _cat(raw, out) if stage.passthrough else out
 
-    def _run_sequential(self, X, labels=False):
+    def _run_sequential(self, X, labels=False, **custom_weights):
         current = X if _is_torch(X) else np.asarray(X)
-        last = len(self.steps) - 1
-        for i, (_, stage) in enumerate(self.steps):
-            current = self._run_stage(stage, current, final=labels and i == last)
-        return current
+        for name, stage in self.steps[:-1]:
+            current = self._run_stage(
+                stage, current, **self._stage_weights(name, custom_weights)
+            )
+        name, head = self.steps[-1]
+        inp = self._prepare_stage_input(current, head)
+        if labels:
+            return head.model.predict_step(inp)
+        return head.model.forward(inp, **self._stage_weights(name, custom_weights))
+
+    @staticmethod
+    def _stage_weights(name, flat_weights):
+        prefix = f"{name}."
+        return {
+            k[len(prefix) :]: v for k, v in flat_weights.items() if k.startswith(prefix)
+        }
+
+    @property
+    def weights(self):
+        """Flat ``{"<stage>.<qnode>.<weight>": array}`` dict of trainable stages."""
+        return {
+            f"{name}.{key}": value
+            for name, stage in self.steps
+            if stage.trainable
+            for key, value in stage.model.weights.items()
+        }
+
+    def update_weights(self, flat_weights_dict):
+        """Write `flat_weights_dict`, keyed like `weights`, into the stages."""
+        for name, stage in self.steps:
+            own = self._stage_weights(name, flat_weights_dict)
+            if own:
+                stage.model.update_weights(own)
+
+    @property
+    def _qnodes(self):
+        return {
+            f"{name}__{key}".replace(".", "_"): node
+            for name, stage in self.steps
+            if stage.trainable
+            for key, node in getattr(stage.model, "_qnodes", {}).items()
+        }
 
     def _expected_width(self, model):
         """Feature width ``model`` expects."""
@@ -225,14 +286,16 @@ class QuantumPipeline(BaseMetaObject):
                 "n_qubits and encoder, or use mode='sequential'."
             )
 
-    def forward(self, X):
+    def forward(self, X, **custom_weights):
         """Run every stage on `X` and return the pipeline's raw output.
 
         `X` is split and normalized but not prescaled: each stage's embedding
         prescaling is applied here, as `predict` and `fit` do.
+        `custom_weights` override the stages' own weights, keyed as in
+        `weights`; sequential mode only.
         """
         if self.mode == "sequential":
-            return self._run_sequential(X)
+            return self._run_sequential(X, **custom_weights)
         return self._forward_ensemble(X)
 
     def _forward_ensemble(self, X):
@@ -269,8 +332,9 @@ class QuantumPipeline(BaseMetaObject):
 
         Returns
         -------
-        dict
-            `TrainingHistory` per trained stage, keyed by stage name.
+        dict or TrainingHistory
+            `TrainingHistory` per trained stage, keyed by stage name; a single
+            `TrainingHistory` under `fit_mode="joint"`.
 
         """
         if datamodule.encoder is not None:
@@ -289,12 +353,22 @@ class QuantumPipeline(BaseMetaObject):
                     "frozen_backbone mode requires all stages except the last to "
                     f"be frozen. Stage '{trainable[0]}' has trainable=True."
                 )
+        elif self.fit_mode == "joint" and trainer.check_bp:
+            raise ValueError(
+                "check_bp reads one model's circuit and cannot run on a jointly "
+                "trained pipeline. Call check_barren_plateau on the quantum "
+                "stage's model instead."
+            )
 
         datamodule.setup(batch_size=trainer.batch_size)
 
         verbose = trainer.verbose
         sequential = self.mode == "sequential"
         self._print_pipeline_summary(verbose)
+
+        if sequential and self.fit_mode == "joint":
+            with self._quiet_stage_summary(trainer):
+                return trainer._fit_model(self, datamodule)
 
         dm = datamodule
         histories = {}
@@ -335,6 +409,8 @@ class QuantumPipeline(BaseMetaObject):
 
     @staticmethod
     def _to_named_steps(steps: list) -> list[tuple[str, PipelineStage]]:
+        from pyqit.models.base.base import BaseModel
+
         named, seen = [], set()
         for i, step in enumerate(steps):
             name, obj = (

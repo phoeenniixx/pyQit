@@ -1,10 +1,22 @@
 import inspect
 
+import numpy as np
 import pennylane as qml
 
 from pyqit.ansatzes.sel import SELAnsatz
 from pyqit.core.embeddings import AngleEmbedding
 from pyqit.models.base.quantum_model import BaseQuantumModel
+
+
+def z_from_probs(n_qubits: int):
+    """Matrix ``M`` with ``probs @ M`` the ``<Z>`` of every wire, wire 0 first.
+
+    Reading ``qml.probs`` and projecting keeps the QNode's output one tensor
+    on both backends; a tuple of ``qml.expval`` comes back from ``TorchLayer``
+    in a version-dependent shape.
+    """
+    bits = (np.arange(2**n_qubits)[:, None] >> np.arange(n_qubits)[::-1]) & 1
+    return 1.0 - 2.0 * bits
 
 
 class _VQC(BaseQuantumModel):

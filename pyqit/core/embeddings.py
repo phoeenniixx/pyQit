@@ -67,6 +67,44 @@ class AngleEmbedding(BaseEmbedding):
         return [{"n_qubits": 2}, {"n_qubits": 4, "rotation": "Y"}]
 
 
+class HadamardAngleEmbedding(BaseEmbedding):
+    """The encoding of Mari et al. (2020): a Hadamard layer, then one RY per wire.
+
+    The Hadamards start every wire at ``|+>``, so an angle in
+    ``[-pi/2, pi/2]`` covers the arc from ``|0>`` to ``|1>``. Inputs are
+    prescaled by ``pi / 2``, which maps a ``tanh`` layer's output onto that
+    range, as in the paper.
+
+    Parameters
+    ----------
+    n_qubits : int
+
+    References
+    ----------
+    Mari, Bromley, Izaac, Schuld, Killoran, "Transfer learning in hybrid
+    classical-quantum neural networks", Quantum 4, 340 (2020).
+    """
+
+    _tags = {
+        "embedding_type": "angle",
+        "differentiable": True,
+        "prescale": "angle_half_pi",
+        "n_qubits_min": 1,
+    }
+
+    def forward(self, inputs):
+        """Apply H then RY on every wire. Expects `inputs` scaled by pi / 2."""
+        for w in range(self.n_qubits):
+            qml.Hadamard(wires=w)
+        for w in range(self.n_qubits):
+            qml.RY(inputs[..., w], wires=w)
+
+    @classmethod
+    def get_test_params(cls):
+        """List constructor kwargs used to parametrize this class in the test suite."""
+        return [{"n_qubits": 2}, {"n_qubits": 3}]
+
+
 class AmplitudeEmbedding(BaseEmbedding):
     """A wrapper for PennyLane's AmplitudeEmbedding circuit."""
 

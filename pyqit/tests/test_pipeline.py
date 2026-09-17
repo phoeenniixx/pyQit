@@ -1,17 +1,20 @@
 import copy
 
 import numpy as np
+import pennylane as qml
 import pytest
 
 import pyqit
-from pyqit.core.embeddings import AmplitudeEmbedding
+from pyqit.ansatzes import CNOTLadderAnsatz
+from pyqit.core.embeddings import AmplitudeEmbedding, HadamardAngleEmbedding
 from pyqit.core.pipeline import PipelineStage, QuantumPipeline
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
+from pyqit.models.layers import DenseClassifier, DenseLayer, QuantumLayer
 from pyqit.tests.scenarios import make_scenario
 from pyqit.tests.test_datamodule import _record_inputs
-from pyqit.tests.test_trainer import BACKENDS, _require, _to_numpy
+from pyqit.tests.test_trainer import BACKENDS, _mse_gradient, _require, _to_numpy
 
 
 def _data(n_samples=20, n_features=2):
@@ -21,6 +24,14 @@ def _data(n_samples=20, n_features=2):
 
 def _vqc(n_qubits=2, **kwargs):
     return VQCClassifier(n_qubits=n_qubits, n_layers=1, **kwargs)
+
+
+def _as_input(X, backend):
+    if backend != "torch":
+        return X
+    import torch
+
+    return torch.as_tensor(X, dtype=torch.float32)
 
 
 def _weights(model):
@@ -34,6 +45,101 @@ def _changed(before, model):
 
 def _trainer(**kwargs):
     return Trainer(max_epochs=1, verbose=0, **kwargs)
+
+
+def _hybrid(n_features=3, **quantum_stage):
+    """Dense, circuit, dense: the hybrid network, as three jointly trained stages."""
+    return QuantumPipeline(
+        [
+            ("pre", DenseLayer(n_features, 2, activation="tanh")),
+            PipelineStage(
+                QuantumLayer(n_qubits=2, n_layers=1), name="q", **quantum_stage
+            ),
+            ("head", DenseClassifier(4 if quantum_stage.get("passthrough") else 2)),
+        ],
+        fit_mode="joint",
+    )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_joint_hybrid_learns_and_trains_the_stage_before_a_frozen_circuit(backend):
+    """The loss sits after the last stage, so reaching `pre` means crossing `q`."""
+    _require(backend)
+    pyqit.set_seed(0)
+    X, y = _data(n_samples=40, n_features=3)
+    pipe = _hybrid(trainable=False)
+    before = {name: _weights(stage.model) for name, stage in pipe.steps}
+    dm = DataModule(X, y, normalize="minmax", split=(0.8, 0.0, 0.2))
+
+    history = Trainer(max_epochs=8, learning_rate=0.1, verbose=0, batch_size=40).fit(
+        pipe, dm
+    )
+
+    moved = {name: _changed(before[name], stage.model) for name, stage in pipe.steps}
+    assert moved == {"pre": True, "q": False, "head": True}
+    assert history.train_loss[-1] < history.train_loss[0]
+    probs = np.ravel(_to_numpy(pipe.forward(_as_input(dm.X_test, backend))))
+    assert Trainer(verbose=0, batch_size=40).test(pipe, dm)["test_loss"] == (
+        pytest.approx(np.mean((probs - dm.y_test.ravel()) ** 2), rel=1e-5)
+    )
+    preds = Trainer(verbose=0).predict(
+        pipe, dm.for_prediction(X[:5]), return_format="numpy"
+    )
+    assert preds.shape == (5,)
+    assert set(np.unique(preds)) <= {0, 1}
+
+
+def test_dressed_circuit_stage_equals_the_reference_circuit_of_mari_et_al():
+    """`quantum_net` of PennyLane's transfer-learning demo, on the same features."""
+    _require("pennylane")
+    pyqit.set_seed(0)
+    n, depth = 3, 2
+    circuit = QuantumLayer(
+        n_qubits=n,
+        n_layers=depth,
+        ansatz=CNOTLadderAnsatz,
+        encoder=HadamardAngleEmbedding,
+    )
+    head = DenseClassifier(n)
+    head_saw = _record_inputs(head)
+    features = np.tanh(np.random.default_rng(0).normal(size=(4, n)))
+    q_weights = np.asarray(circuit.weights["main_circuit.weights"])
+
+    @qml.qnode(qml.device("default.qubit", wires=n))
+    def quantum_net(q_in):
+        for w in range(n):
+            qml.Hadamard(wires=w)
+        for w in range(n):
+            qml.RY(q_in[w], wires=w)
+        for k in range(depth):
+            for i in range(0, n - 1, 2):
+                qml.CNOT(wires=[i, i + 1])
+            for i in range(1, n - 1, 2):
+                qml.CNOT(wires=[i, i + 1])
+            for w in range(n):
+                qml.RY(q_weights[k, w], wires=w)
+        return [qml.expval(qml.PauliZ(w)) for w in range(n)]
+
+    Trainer(verbose=0).predict(
+        QuantumPipeline([circuit, head]),
+        DataModule(features, np.zeros(4), split=(0.0, 0.0, 1.0)),
+    )
+
+    reference = np.array([quantum_net(row * np.pi / 2) for row in features])
+    np.testing.assert_allclose(head_saw[0], reference, atol=1e-9)
+
+
+def test_joint_gradient_is_the_same_under_autograd_and_torch():
+    """Two autodiff engines agree on every stage's gradient, passthrough included."""
+    X, y = _data(n_samples=6, n_features=3)
+    grads = []
+    for backend in BACKENDS:
+        _require(backend)
+        pyqit.set_seed(0)
+        grads.append(_mse_gradient(_hybrid(passthrough=True), X, y))
+
+    assert np.abs(grads[0][:6]).min() > 0
+    np.testing.assert_allclose(grads[0], grads[1], atol=1e-6)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

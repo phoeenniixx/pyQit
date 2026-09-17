@@ -50,7 +50,7 @@ def _mse_gradient(model, X, y):
     """Flat MSE gradient of ``model`` at its current weights, either backend."""
     from pyqit.core.losses import get_loss_fn
 
-    if model.backend == "torch":
+    if any(type(w).__module__.startswith("torch") for w in model.weights.values()):
         import torch
 
         for param in model.weights.values():

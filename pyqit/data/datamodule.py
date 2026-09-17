@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
+import pennylane as qml
 
 from pyqit.core.config import get_backend
 
@@ -142,7 +143,8 @@ def _fit_width(X, width):
             "the rest would be silently dropped. Select or reduce features first."
         )
     if X.shape[1] < width:
-        return np.hstack([X, np.zeros((len(X), width - X.shape[1]))])
+        zeros = qml.math.zeros_like(X[:, :1])[:, [0] * (width - X.shape[1])]
+        return qml.math.concatenate([X, zeros], axis=1)
     return X
 
 
@@ -150,8 +152,14 @@ def _prescale_angle_pi(X, n_qubits):
     return _fit_width(X, n_qubits) * np.pi
 
 
+def _prescale_angle_half_pi(X, n_qubits):
+    return _fit_width(X, n_qubits) * (np.pi / 2)
+
+
 def _prescale_amplitude(X, n_qubits):
-    return _unit_rows(_fit_width(X, 2**n_qubits))
+    X = _fit_width(X, 2**n_qubits)
+    sq = qml.math.sum(X**2, axis=1, keepdims=True)
+    return X / qml.math.sqrt(qml.math.where(sq == 0, 1.0, sq))
 
 
 def _prescale_binary(X, n_qubits):
@@ -160,6 +168,7 @@ def _prescale_binary(X, n_qubits):
 
 _PRESCALE_FNS = {
     "angle_pi": _prescale_angle_pi,
+    "angle_half_pi": _prescale_angle_half_pi,
     "amplitude": _prescale_amplitude,
     "binary": _prescale_binary,
 }
