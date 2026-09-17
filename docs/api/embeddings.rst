@@ -70,18 +70,3 @@ Related
 :doc:`datamodule` runs the prescaling these tags select, and :doc:`models`
 chooses the embedding in the first place. :doc:`pipeline` enforces the same
 width rules between stages.
-
-.. autosummary::
-   :nosignatures:
-
-   BaseEmbedding
-   AngleEmbedding
-   AmplitudeEmbedding
-   IQPEmbedding
-   ZZFeatureMap
-
-.. autoclass:: BaseEmbedding
-.. autoclass:: AngleEmbedding
-.. autoclass:: AmplitudeEmbedding
-.. autoclass:: IQPEmbedding
-.. autoclass:: ZZFeatureMap
