@@ -11,11 +11,26 @@ class SimplifiedTwoDesignAnsatz(BaseAnsatz):
     rotations. This is the circuit the local-cost trainability result was
     proved on, so it pairs with the barren-plateau diagnostic.
 
+    There are two weight tensors, `initial_layer_weights` of shape
+    `(n_qubits,)` and `weights` of shape `(n_layers, n_qubits - 1, 2)`.
+
     Parameters
     ----------
     n_qubits : int
         At least 2.
     n_layers : int, default 2
+
+    References
+    ----------
+    Cerezo, Sone, Volkoff, Cincio, Coles, "Cost function dependent barren
+    plateaus in shallow parametrized quantum circuits", Nat. Commun. 12, 1791
+    (2021).
+
+    Examples
+    --------
+    >>> from pyqit.ansatzes import SimplifiedTwoDesignAnsatz
+    >>> SimplifiedTwoDesignAnsatz(n_qubits=3, n_layers=2).get_weight_shapes()
+    {'initial_layer_weights': (3,), 'weights': (2, 2, 2)}
     """
 
     _tags = {"n_qubits_min": 2}

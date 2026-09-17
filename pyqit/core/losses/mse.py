@@ -22,7 +22,11 @@ def mse_loss(preds, targets):
 
 
 class MSELoss(BaseLoss):
-    """Mean squared error."""
+    """Mean squared error, the Trainer's default loss.
+
+    Select it with ``Trainer(loss_fn="mse")``. Targets have the same shape as
+    the model's output.
+    """
 
     _tags = {"name": "mse"}
 

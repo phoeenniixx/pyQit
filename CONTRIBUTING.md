@@ -36,6 +36,11 @@ There's no registration step. A class with the right `object_type` tag is picked
 starts with `_`, so a class defined there is silently never found. Put it somewhere
 else.
 
+The docs have one manual step. Add the class name to the `autosummary` list in
+`docs/api/<kind>.rst`. Sphinx builds the class's page from its docstring, so the
+circuit, weight shapes, reference and an example go there. A class left off the list
+gets no page and the build does not warn.
+
 ## Soft dependencies
 
 torch, lightning, matplotlib, and rich are optional. Guard any import of them with

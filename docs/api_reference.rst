@@ -2,7 +2,8 @@
 API Reference
 =============
 
-One page per kind of module. The import paths shown are the supported ones.
+One page per kind of object. Each lists its classes and functions, and every
+name links to a page of its own. The import paths shown are the supported ones.
 Anything reached through a private module, ``_registry`` or ``_reporting`` and
 the like, is an implementation detail and may move without notice.
 

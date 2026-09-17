@@ -17,6 +17,7 @@ extensions = [
     "nbsphinx",
 ]
 
+templates_path = ["_templates"]
 exclude_patterns = ["_build", "**.ipynb_checkpoints", "tutorials/ckpts"]
 
 # Docstrings follow the numpy convention (see [tool.ruff.lint.pydocstyle]).

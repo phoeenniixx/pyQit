@@ -4,19 +4,28 @@ from pyqit.ansatzes.base import BaseAnsatz
 
 
 class SELAnsatz(BaseAnsatz):
-    """
-    Strongly Entangling Layers (SEL) ansatz.
+    """Strongly entangling layers of Schuld et al. (2020).
 
-    This class implements a parameterized quantum circuit using PennyLane's
-    `StronglyEntanglingLayers` template. It applies single-qubit rotations
-    and entangling gates across the specified number of layers.
+    Wraps PennyLane's `StronglyEntanglingLayers`. Each layer applies three
+    rotations to every qubit, then a CNOT layer whose range grows with the
+    layer index. The weights are one tensor, `weights`, of shape
+    `(n_layers, n_qubits, 3)`.
 
     Parameters
     ----------
     n_qubits : int
-        The number of qubits the ansatz acts upon.
-    n_layers : int, optional
-        The number of entangling layers in the circuit. Default is 2.
+    n_layers : int, default 2
+
+    References
+    ----------
+    Schuld, Bocharov, Svore, Wiebe, "Circuit-centric quantum classifiers",
+    Phys. Rev. A 101, 032308 (2020).
+
+    Examples
+    --------
+    >>> from pyqit.ansatzes import SELAnsatz
+    >>> from pyqit.models import VQCClassifier
+    >>> model = VQCClassifier(n_qubits=4, n_layers=3, ansatz=SELAnsatz)
     """
 
     def __init__(self, n_qubits: int, n_layers: int = 2):
