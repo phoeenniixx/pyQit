@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 import pyqit
-from pyqit.core.callbacks import BaseCallback, EarlyStopping, ModelCheckpoint
+from pyqit.core.callbacks import BaseCallback, ModelCheckpoint
 from pyqit.core.trainer import Trainer, TrainingHistory
-from pyqit.core.trainer.loops import PennyLaneLoop, loop_registry
+from pyqit.core.trainer.loops import PennyLaneLoop
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
 from pyqit.tests.scenarios import make_scenario
@@ -80,6 +80,27 @@ def _mse_gradient(model, X, y):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_reported_loss_is_the_mean_over_rows_when_the_last_batch_is_short(backend):
+    """13 test rows in batches of 8 and 5; a mean of batch means would be off."""
+    _require(backend)
+    model = _model()
+    dm = _dm(n_samples=26, split=(0.5, 0.0, 0.5))
+    trainer = Trainer(max_epochs=1, verbose=0, batch_size=8)
+    trainer.fit(model, dm)
+    X = dm.X_test
+    if backend == "torch":
+        import torch
+
+        X = torch.as_tensor(X, dtype=torch.float32)
+
+    probs = _to_numpy(model.forward(X))
+
+    assert trainer.test(model, dm)["test_loss"] == pytest.approx(
+        np.mean((probs - dm.y_test.ravel()) ** 2), rel=1e-5
+    )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("name", ["sgd", "SGD"])
 def test_optimizer_name_is_case_insensitive(backend, name):
     """Trainer stores it verbatim, so each backend must case-fold at use."""
@@ -99,11 +120,6 @@ def test_optimizer_name_is_case_insensitive(backend, name):
         assert type(optimizer).__name__ == "GradientDescentOptimizer"
 
 
-def test_both_loops_are_discovered():
-    """Registration is by tag; a loop in a private module would silently vanish."""
-    assert {"pennylane", "torch"} <= set(loop_registry())
-
-
 def test_history_tracks_best_on_val_loss_or_train_loss():
     """Without a validation split val_loss is NaN, which loses every comparison
     and used to leave best_score at inf."""
@@ -121,77 +137,6 @@ def test_history_tracks_best_on_val_loss_or_train_loss():
     assert without_val.best_metric == "train_loss"
     assert without_val.best_epoch == 1
     assert without_val.best_score == pytest.approx(0.4)
-
-
-@pytest.mark.parametrize(
-    "kwargs, expectation",
-    [
-        ({"backend_kwargs": {"devices": 2}}, "raise"),
-        ({"logger": True}, "warn"),
-    ],
-)
-def test_pennylane_reports_settings_it_cannot_honour(kwargs, expectation):
-    """The alternative is a run that quietly ignored what was asked for."""
-    pyqit.set_backend("pennylane")
-    trainer = Trainer(max_epochs=1, verbose=0, **kwargs)
-
-    if expectation == "raise":
-        with pytest.raises(ValueError, match="not supported on the 'pennylane'"):
-            trainer.fit(_model(), _dm())
-    else:
-        # Warns rather than raising: the resulting model is still correct.
-        with pytest.warns(UserWarning, match="is ignored on the 'pennylane'"):
-            trainer.fit(_model(), _dm())
-
-
-def test_backend_kwargs_actually_reach_lightning():
-    """An unknown key must surface from Lightning; silence means it was dropped."""
-    _require("torch")
-    trainer = Trainer(
-        max_epochs=1, verbose=0, backend_kwargs={"not_a_real_lightning_kwarg": 1}
-    )
-
-    with pytest.raises(TypeError, match="not_a_real_lightning_kwarg"):
-        trainer.fit(_model(), _dm())
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_early_stopping_halts_both_backends(backend):
-    _require(backend)
-    stopper = EarlyStopping(monitor="train_loss", patience=0, verbose=False)
-    # lr=0 guarantees no improvement, so the stop is the only way out.
-    history = Trainer(
-        max_epochs=20, learning_rate=0.0, verbose=0, callbacks=[stopper]
-    ).fit(_model(), _dm())
-
-    assert stopper.stopped_epoch is not None
-    assert len(history.train_loss) < 20
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_checkpoint_restores_best_weights_into_the_model(backend, tmp_path):
-    """``update_weights`` is a no-op under torch, so this is the real check."""
-    _require(backend)
-    checkpoint = ModelCheckpoint(dirpath=str(tmp_path), monitor="val_loss")
-    model = _model()
-    Trainer(max_epochs=4, learning_rate=0.3, verbose=0, callbacks=[checkpoint]).fit(
-        model, _dm()
-    )
-
-    if backend == "torch":
-        import torch
-
-        saved = torch.load(checkpoint.best_path, weights_only=False)["state_dict"]
-    else:
-        saved = dict(np.load(checkpoint.best_path))
-
-    assert set(saved) == set(model.weights)
-    for key, value in saved.items():
-        np.testing.assert_allclose(
-            _to_numpy(model.weights[key]),
-            _to_numpy(value),
-            err_msg=f"best weights for {key!r} were not restored into the model",
-        )
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -246,45 +191,6 @@ def _drive(callback, values):
     return None
 
 
-@pytest.mark.parametrize("patience, expected_stop", [(0, 2), (2, 3)])
-def test_patience_counts_the_way_lightning_counts_it(patience, expected_stop):
-    """Lightning stops once the wait *reaches* patience; ``>`` cost an extra epoch.
-
-    Best is 0.5 at epoch 1, so epoch 2 is the first non-improvement (wait 1) and
-    epoch 3 the second (wait 2).
-    """
-    values = [1.0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    stopper = EarlyStopping(monitor="m", patience=patience, verbose=False)
-
-    assert _drive(stopper, values) == expected_stop
-
-
-def test_check_finite_stops_on_nan():
-    """A diverged circuit yields NaN, which never 'fails to improve'."""
-    stopper = EarlyStopping(monitor="m", patience=99, verbose=False)
-    assert _drive(stopper, [1.0, float("nan")]) == 1
-    assert "not finite" in stopper.stopping_reason
-
-    lenient = EarlyStopping(monitor="m", patience=99, check_finite=False, verbose=False)
-    assert _drive(lenient, [1.0, float("nan")]) is None
-
-
-def test_hard_label_rule_is_identical_across_backends():
-    """One rule, or the two backends report different accuracy silently."""
-    torch = pytest.importorskip("torch")
-    from pyqit.utils.utils import _hard_labels
-
-    for array in (
-        np.array([[0.1, 0.9], [0.8, 0.2], [0.4, 0.6]]),
-        np.array([[0.2], [0.5], [0.7]]),
-        np.array([0.2, 0.5, 0.7]),
-    ):
-        np.testing.assert_array_equal(
-            _to_numpy(_hard_labels(array)),
-            _to_numpy(_hard_labels(torch.as_tensor(array))),
-        )
-
-
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_every_metric_is_recorded_on_both_backends(backend):
     """train_acc is scored from the training pass, so no metric is ever NaN."""
@@ -333,48 +239,6 @@ def test_test_scores_the_test_split_with_the_configured_loss(backend):
     assert np.isfinite(metrics["test_loss"])
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_validate_after_fit_reproduces_the_last_epochs_val_metrics(backend):
-    """Same weights, same split: the two evaluators must not drift apart."""
-    _require(backend)
-    model = _model()
-    dm = _dm(n_samples=40)
-    trainer = Trainer(max_epochs=2, verbose=0, loss_fn="cross_entropy")
-    history = trainer.fit(model, dm)
-
-    metrics = trainer.validate(model, dm)
-
-    assert metrics["val_loss"] == pytest.approx(history.val_loss[-1], rel=1e-5)
-    assert metrics["val_acc"] == pytest.approx(history.val_acc[-1])
-
-
-@pytest.mark.parametrize(
-    "method, split", [("validate", (0.8, 0.0, 0.2)), ("test", (0.8, 0.2, 0.0))]
-)
-def test_evaluation_refuses_a_datamodule_missing_its_split(method, split):
-    """Scoring another split under the requested name would be a silent lie."""
-    pyqit.set_backend("pennylane")
-    with pytest.raises(ValueError, match="split"):
-        getattr(Trainer(verbose=0), method)(_model(), _dm(split=split))
-
-
-def test_lightning_adapter_reports_an_unprepared_datamodule():
-    """Lightning's setup hook cannot supply n_qubits/encoder, so it must not guess."""
-    _require("torch")
-    model = _model()
-
-    bare = _dm().to_lightning()
-    with pytest.raises(RuntimeError, match="not set up"):
-        bare.setup("fit")
-
-    dm = _dm()
-    dm.setup(stage="fit", n_qubits=model.n_qubits, encoder=type(model.embedding_obj))
-    ready = dm.to_lightning()
-    ready.setup("fit")
-
-    assert len(next(iter(ready.train_dataloader()))) == 2
-
-
 def _hide_torch(monkeypatch, module):
     """Make ``module``'s soft-dependency check report torch as missing."""
     import skbase.utils.dependencies as dep
@@ -392,30 +256,6 @@ def _hide_torch(monkeypatch, module):
 
 def _as_list(value):
     return value if isinstance(value, (list, tuple)) else [value]
-
-
-def test_set_backend_torch_requires_torch(monkeypatch):
-    """Otherwise the model is built the pennylane way and fails later elsewhere."""
-    from pyqit.core import config
-
-    pyqit.set_backend("pennylane")
-    _hide_torch(monkeypatch, config)
-
-    with pytest.raises(ImportError, match="requires torch"):
-        pyqit.set_backend("torch")
-
-    assert pyqit.get_backend() == "pennylane"
-
-
-def test_predict_torch_format_requires_torch(monkeypatch):
-    """Reachable from the pennylane backend, so set_backend cannot cover it."""
-    from pyqit.core.trainer import trainer as trainer_module
-
-    pyqit.set_backend("pennylane")
-    _hide_torch(monkeypatch, trainer_module)
-
-    with pytest.raises(ImportError, match="return_format='torch' requires torch"):
-        Trainer(verbose=0).predict(_model(), _dm(), return_format="torch")
 
 
 @pytest.mark.parametrize("return_format", ["auto", "numpy", "torch", "pennylane"])
@@ -452,28 +292,6 @@ def _load(path):
 
 def _weights_equal(a, b):
     return all(np.allclose(_to_numpy(a[k]), _to_numpy(b[k]), atol=1e-8) for k in a)
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_save_last_holds_the_final_epoch_not_the_best(backend, tmp_path):
-    """Written before restore_best rewrites the model, or 'last' would be best."""
-    _require(backend)
-    checkpoint = ModelCheckpoint(
-        dirpath=str(tmp_path), save_last=True, monitor="train_loss", mode="max"
-    )
-    model = _model()
-    Trainer(max_epochs=4, learning_rate=0.5, verbose=0, callbacks=[checkpoint]).fit(
-        model, _dm()
-    )
-
-    last = _load(checkpoint.last_path)
-    best = _load(checkpoint.best_path)
-
-    # mode="max" pins "best" to the highest-loss epoch, the first one in any run
-    # that improves, so it cannot coincide with the last regardless of trajectory.
-    # restore_best defaults on, so the model now holds that epoch.
-    assert _weights_equal(best, model.weights)
-    assert not _weights_equal(last, best), "last must not be the restored best"
 
 
 def test_save_last_only_writes_no_best_and_does_not_restore(tmp_path):

@@ -21,9 +21,7 @@ class PennyLaneLoop(BaseTrainingLoop):
 
     _tags = {"backend": "pennylane"}
 
-    # backend_kwargs targets lightning.pytorch.Trainer; there is none here.
     rejects = ("backend_kwargs",)
-    # Metrics are returned in the TrainingHistory instead.
     warns = ("logger",)
 
     def fit(self, model, datamodule, state, callbacks: list) -> None:
@@ -57,7 +55,7 @@ class PennyLaneLoop(BaseTrainingLoop):
         with self.reporter.progress() as progress:
             for epoch in range(trainer.max_epochs):
                 t0 = time.time()
-                batch_losses = []
+                batch_losses, batch_sizes = [], []
                 correct = total = 0
 
                 for X_batch, y_batch in train_loader:
@@ -69,6 +67,7 @@ class PennyLaneLoop(BaseTrainingLoop):
                     )
                     current_weights = list(args_out[2:])
                     batch_losses.append(float(batch_loss))
+                    batch_sizes.append(len(y_batch))
 
                     if is_classifier:
                         y_true = np.asarray(y_batch).astype(int).flatten()
@@ -77,7 +76,7 @@ class PennyLaneLoop(BaseTrainingLoop):
 
                 model.update_weights(dict(zip(weight_keys, current_weights)))
 
-                train_loss = float(np.mean(batch_losses))
+                train_loss = float(np.average(batch_losses, weights=batch_sizes))
                 train_acc = float(correct / total) if total else float("nan")
                 val_loss, val_acc = self._evaluate(model, val_loader, loss_fn)
 
@@ -144,19 +143,20 @@ class PennyLaneLoop(BaseTrainingLoop):
         if dataloader is None:
             return float("nan"), float("nan")
 
-        losses = []
+        losses, sizes = [], []
         correct, total = 0, 0
         is_classifier = _is_classifier(model)
 
         for X_b, y_b in dataloader:
             preds = model.forward(X_b)
             losses.append(float(loss_fn(preds, pnp.array(y_b, requires_grad=False))))
+            sizes.append(len(y_b))
 
             if is_classifier:
                 y_true = y_b.astype(int).flatten()
                 correct += np.sum(_hard_labels(preds) == y_true)
                 total += len(y_true)
 
-        loss = float(np.mean(losses)) if losses else float("nan")
+        loss = float(np.average(losses, weights=sizes)) if losses else float("nan")
         accuracy = float(correct / total) if total > 0 else float("nan")
         return loss, accuracy
