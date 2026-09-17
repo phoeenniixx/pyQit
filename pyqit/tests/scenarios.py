@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.datasets import make_blobs, make_classification
+from sklearn.datasets import make_blobs, make_classification, make_regression
 
 
 def _generate_embedding_data(instance, batch_size=8):
@@ -80,6 +80,21 @@ def _make_linearly_separable(n_samples=30, n_features=2, seed=0) -> dict:
     }
 
 
+def _make_regression(n_samples=40, n_features=4, seed=42) -> dict:
+    X, y = make_regression(
+        n_samples=n_samples, n_features=n_features, noise=0.1, random_state=seed
+    )
+    X = (X - X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))
+    y = 2.0 * (y - y.min()) / (y.max() - y.min()) - 1.0
+    return {
+        "name": "regression",
+        "X": X.astype(np.float64),
+        "y": y.astype(np.float64),
+        "n_classes": None,
+        "n_features": n_features,
+    }
+
+
 SCENARIOS: list[dict] = [
     _make_binary(),
     _make_multiclass(),
@@ -90,9 +105,11 @@ SCENARIOS: list[dict] = [
 def make_scenario(
     n_samples: int = 30,
     n_features: int = 4,
-    n_classes: int = 2,
+    n_classes: int | None = 2,
     seed: int = 0,
 ) -> dict:
+    if n_classes is None:
+        return _make_regression(n_samples=n_samples, n_features=n_features, seed=seed)
     if n_classes == 2:
         return _make_binary(n_samples=n_samples, n_features=n_features, seed=seed)
     return _make_multiclass(

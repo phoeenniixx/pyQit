@@ -6,6 +6,7 @@ from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.tests._fixture_generators import BaseFixtureGenerator
 from pyqit.tests.scenarios import make_scenario
+from pyqit.utils.utils import _is_classifier
 
 
 def _extract_numpy(tensor):
@@ -28,8 +29,10 @@ class TestAllModels(BaseFixtureGenerator):
         split=(0.6, 0.2, 0.2),
     ):
         """Helper to generate a dm that perfectly matches the model's architecture."""
-        n_features = getattr(model_instance, "n_qubits", 4)
-        n_classes = getattr(model_instance, "n_classes", 2)
+        n_features = getattr(
+            model_instance, "n_features", getattr(model_instance, "n_qubits", 4)
+        )
+        n_classes = getattr(model_instance, "n_classes", None)
 
         scenario = make_scenario(
             n_samples=n_samples, n_features=n_features, n_classes=n_classes, seed=42
@@ -81,9 +84,12 @@ class TestAllModels(BaseFixtureGenerator):
 
         assert len(preds) > 0, "Trainer predict returned an empty array."
         assert not np.isnan(preds).any(), "Trainer predict returned NaNs."
-        assert np.issubdtype(
-            preds.dtype, np.integer
-        ), "Predict did not return hard integer labels."
+        if _is_classifier(model):
+            assert np.issubdtype(
+                preds.dtype, np.integer
+            ), "Predict did not return hard integer labels."
+        else:
+            assert np.issubdtype(preds.dtype, np.floating)
 
     @pytest.mark.parametrize("backend", ["pennylane", "torch"])
     def test_checkpointing(

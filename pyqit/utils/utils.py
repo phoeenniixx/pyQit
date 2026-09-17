@@ -74,6 +74,17 @@ def _hard_labels(preds):
     return (preds >= 0.5).astype(int).flatten()
 
 
+def _is_classifier(model) -> bool:
+    """Whether ``model`` emits class scores that ``_hard_labels`` may threshold.
+
+    A regressor's raw output thresholded at 0.5 against its float targets cast
+    to int yields a plausible accuracy that means nothing, so the loops record
+    NaN for anything tagged a regressor. Untagged objects, pipelines included,
+    keep the accuracy they always had.
+    """
+    return model.get_tag("estimator_type", None, raise_error=False) != "regressor"
+
+
 def _count_params(model) -> int | None:
     """Total scalar trainable parameters of ``model``, or None if it exposes none."""
     weights = getattr(model, "weights", None)

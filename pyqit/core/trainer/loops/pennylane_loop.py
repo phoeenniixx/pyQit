@@ -8,7 +8,7 @@ import pennylane.numpy as pnp
 
 from pyqit.core.losses import get_loss_fn
 from pyqit.core.trainer.loops.base import BaseTrainingLoop
-from pyqit.utils.utils import _hard_labels
+from pyqit.utils.utils import _hard_labels, _is_classifier
 
 
 class PennyLaneLoop(BaseTrainingLoop):
@@ -38,6 +38,7 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         train_loader = datamodule.train_loader()
         val_loader = datamodule.val_loader(shuffle=False)
+        is_classifier = _is_classifier(model)
 
         captured = {}
 
@@ -69,9 +70,10 @@ class PennyLaneLoop(BaseTrainingLoop):
                     current_weights = list(args_out[2:])
                     batch_losses.append(float(batch_loss))
 
-                    y_true = np.asarray(y_batch).astype(int).flatten()
-                    correct += np.sum(_hard_labels(captured["preds"]) == y_true)
-                    total += len(y_true)
+                    if is_classifier:
+                        y_true = np.asarray(y_batch).astype(int).flatten()
+                        correct += np.sum(_hard_labels(captured["preds"]) == y_true)
+                        total += len(y_true)
 
                 model.update_weights(dict(zip(weight_keys, current_weights)))
 
@@ -144,14 +146,16 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         losses = []
         correct, total = 0, 0
+        is_classifier = _is_classifier(model)
 
         for X_b, y_b in dataloader:
             preds = model.forward(X_b)
             losses.append(float(loss_fn(preds, pnp.array(y_b, requires_grad=False))))
 
-            y_true = y_b.astype(int).flatten()
-            correct += np.sum(_hard_labels(preds) == y_true)
-            total += len(y_true)
+            if is_classifier:
+                y_true = y_b.astype(int).flatten()
+                correct += np.sum(_hard_labels(preds) == y_true)
+                total += len(y_true)
 
         loss = float(np.mean(losses)) if losses else float("nan")
         accuracy = float(correct / total) if total > 0 else float("nan")

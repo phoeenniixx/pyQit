@@ -1,21 +1,10 @@
-import inspect
-
-import numpy as np
-import pennylane as qml
-
 from pyqit.ansatzes.sel import SELAnsatz
-from pyqit.core.config import get_backend
 from pyqit.core.embeddings import AngleEmbedding
-from pyqit.core.measurements import (
-    measure_expval_x,
-    measure_expval_z,
-    measure_probs,
-)
-from pyqit.models.base.quantum_model import BaseQuantumModel
 from pyqit.models.classification.classifier_mixin import ClassifierMixin
+from pyqit.models.layers.vqc import _VQC
 
 
-class VQCClassifier(BaseQuantumModel, ClassifierMixin):
+class VQCClassifier(_VQC, ClassifierMixin):
     """Variational quantum classifier: an embedding, an ansatz, a measurement.
 
     Parameters
@@ -40,6 +29,11 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
     shots : int, optional
         `None` runs analytic (infinite-shot) simulation.
 
+    References
+    ----------
+    Havlicek et al., "Supervised learning with quantum-enhanced feature
+    spaces", Nature 567, 209 (2019). Readout follows Qiskit ML's ``VQC``.
+
     Examples
     --------
     >>> import pyqit
@@ -60,88 +54,16 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
         device="default.qubit",
         shots=None,
     ):
-        if not inspect.isclass(ansatz):
-            raise TypeError(
-                f"'ansatz' must be a class (e.g., SELAnsatz), "
-                f"got {type(ansatz).__name__}"
-            )
-
-        if not inspect.isclass(encoder):
-            raise TypeError(
-                f"'encoder' must be a class (e.g., AngleEmbedding), "
-                f"got {type(encoder).__name__}"
-            )
-
-        if n_classes > 2 and n_classes > 2**n_qubits:
-            raise ValueError(
-                f"Cannot classify {n_classes} classes with {n_qubits} qubits. "
-                f"Maximum: {2**n_qubits}. Increase n_qubits or reduce n_classes."
-            )
-
+        self.n_classes = n_classes
         super().__init__(
+            n_qubits=n_qubits,
+            n_layers=n_layers,
+            ansatz=ansatz,
+            encoder=encoder,
+            measure_fn=measure_fn,
+            measure_wires=measure_wires,
             device=device,
             shots=shots,
-        )
-
-        self.n_qubits = n_qubits
-        self.n_layers = n_layers
-        self.ansatz = ansatz
-        self.encoder = encoder
-        self.n_classes = n_classes
-        self.measure_fn = measure_fn
-        self.measure_wires = measure_wires
-        self.backend = get_backend()
-        self.device = device
-        self.shots = shots
-
-        self._ansatz_name = self.ansatz.__name__
-        self._encoder_name = self.encoder.__name__
-
-        self.ansatz_obj = self.ansatz(n_qubits=n_qubits, n_layers=n_layers)
-        self.embedding_obj = self.encoder(n_qubits=n_qubits)
-
-        if self.measure_fn is None:
-            if n_classes == 2:
-                self._measure_fn = measure_expval_z
-            else:
-                self._measure_fn = measure_probs
-        else:
-            self._measure_fn = self.measure_fn
-
-        if self.measure_wires is None:
-            if n_classes == 2:
-                self._measure_wires = [0]
-            else:
-                self._measure_wires = list(range(n_qubits))
-        else:
-            self._measure_wires = self.measure_wires
-
-        if (
-            n_classes == 2
-            and len(self._measure_wires) != 1
-            and self._measure_fn in (measure_expval_z, measure_expval_x)
-        ):
-            raise ValueError(
-                f"Binary classification reads one expectation value per sample, "
-                f"but measure_wires={self._measure_wires} names "
-                f"{len(self._measure_wires)} wires, which makes "
-                f"{self._measure_fn.__name__} return a tuple. Pass exactly one "
-                f"wire, set n_classes > 2, or supply a measure_fn that reduces "
-                f"the wires to a single value."
-            )
-
-        weight_shapes = self.ansatz_obj.get_weight_shapes()
-        self.weight_keys = list(weight_shapes.keys())
-        init_weights = self.init_weights(weight_shapes)
-
-        dev = qml.device(self.device, wires=self.n_qubits)
-        primary_qnode = qml.set_shots(
-            qml.QNode(self._circuit, dev, interface=self.get_interface()),
-            shots=self.shots,
-        )
-
-        self.register_qnode(
-            "main_circuit", primary_qnode, weight_shapes, weights=init_weights
         )
 
     def __repr__(self):
@@ -150,11 +72,6 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
             f"n_classes={self.n_classes}, ansatz={self._ansatz_name}, "
             f"encoder={self._encoder_name}, device='{self.device}')"
         )
-
-    def _circuit(self, inputs, **weights):
-        self.embedding_obj.forward(inputs)
-        self.ansatz_obj.build_circuit(weights)
-        return self._measure_fn(self._measure_wires)
 
     def forward(self, X, **custom_weights):
         """Run the circuit and return class probabilities.
@@ -173,11 +90,7 @@ class VQCClassifier(BaseQuantumModel, ClassifierMixin):
             probability matrix otherwise.
         """
         raw_output = self.execute_qnode("main_circuit", X, **custom_weights)
-
-        if self.n_classes == 2:
-            return (raw_output + 1.0) / 2.0
-        bins = np.eye(self.n_classes)[np.arange(raw_output.shape[-1]) % self.n_classes]
-        return qml.math.dot(raw_output, qml.math.cast_like(bins, raw_output))
+        return self._to_probabilities(raw_output)
 
     @classmethod
     def get_test_params(cls):

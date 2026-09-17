@@ -9,9 +9,8 @@ holds the weights, and exposes ``forward``. :class:`BaseModel` defines the
 contract and :class:`BaseQuantumModel` adds the quantum-specific plumbing that
 every circuit model shares.
 
-:class:`VQCClassifier` is the concrete classifier that ships today. It takes a
-qubit count, a depth, an ansatz class and an embedding class, and wires them
-together:
+:class:`VQCClassifier` is the model to start with. It takes a qubit count, a
+depth, an ansatz class and an embedding class, and wires them together:
 
 .. code-block:: python
 
@@ -28,6 +27,20 @@ together:
 
 The ansatz and encoder arrive as classes, not instances. The model builds them
 with its own ``n_qubits``, so the two cannot disagree about width.
+
+:class:`VQCRegressor` is the same circuit read as a value: the parity
+``Z ⊗ ... ⊗ Z`` expectation, Qiskit ML's ``VQR`` default, through a trainable
+``scale * <Z> + offset`` head that starts at identity, so targets need no
+scaling. ``output_scale=False`` reproduces ``VQR``, whose targets must lie in
+``[-1, 1]``. The loops record accuracy as NaN for it.
+
+Two models take ``n_features`` instead of an encoder, because they encode the
+input themselves and the DataModule leaves it unscaled.
+:class:`DataReuploadingClassifier` re-encodes the input inside every layer
+(Perez-Salinas et al. 2020), and :class:`DressedQuantumClassifier` sandwiches
+the circuit between two dense layers (Mari et al. 2020), the first hybrid. Its
+classical weights sit in the same flat dict as the circuit's, under
+``pre_net.*`` and ``post_net.*``.
 
 Weights exist before training
 =============================
@@ -92,15 +105,36 @@ Related
 the model against a :doc:`datamodule`. The
 :doc:`VQC tutorial </tutorials/vqc>` walks through building and training one.
 
+Available models
+================
+
+.. autosummary::
+   :nosignatures:
+
+   VQCClassifier
+   VQCRegressor
+   DataReuploadingClassifier
+   DressedQuantumClassifier
+
+.. autoclass:: VQCClassifier
+.. autoclass:: VQCRegressor
+.. autoclass:: DataReuploadingClassifier
+.. autoclass:: DressedQuantumClassifier
+
+Base classes and mixins
+=======================
+
+Subclass these to write a model; you never instantiate them directly.
+
 .. autosummary::
    :nosignatures:
 
    BaseModel
    BaseQuantumModel
    ClassifierMixin
-   VQCClassifier
+   RegressorMixin
 
 .. autoclass:: BaseModel
 .. autoclass:: BaseQuantumModel
 .. autoclass:: ClassifierMixin
-.. autoclass:: VQCClassifier
+.. autoclass:: RegressorMixin
