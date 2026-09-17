@@ -28,6 +28,17 @@ once and both backends honour it.
    [EarlyStopping] Stopped at epoch 18 - val_loss did not improve for 3 epoch(s)
    [Checkpoint] Restored best weights from epoch 15 (val_loss: 0.3721)
 
+Available callbacks
+===================
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   EarlyStopping
+   ModelCheckpoint
+   HistoryCallback
+
 Why Lightning callbacks are rejected
 ====================================
 
@@ -39,27 +50,6 @@ the louder option.
 On the torch backend a shim reads Lightning's ``callback_metrics`` into the same
 metric names and forwards ``state.stop`` onto ``trainer.should_stop``, so the
 same callback object works on both sides.
-
-Checkpointing
-=============
-
-:class:`ModelCheckpoint` owns checkpointing on both backends, and Lightning's
-own is switched off so a run is never written twice. Only the file format
-differs, ``.ckpt`` holding a ``state_dict`` on torch and ``.npz`` on pennylane.
-The array keys match ``model.weights`` either way.
-
-Three files can be written independently. ``save_best`` uses the stem from
-``filename``, ``save_last`` uses ``last``, and ``every_n_epochs`` uses
-``epoch<n>``, numbered from zero to match ``best_epoch``. The best file is
-written once after training. Set ``save_on_improve=True`` to write on every
-improvement instead, at the cost of extra I/O.
-
-``restore_best`` defaults to whatever ``save_best`` is, not to ``True``, so
-``save_best=False, save_last=True`` will not quietly hand you back the best
-model when you asked for the last one.
-
-Nothing here resumes a run. These files hold weights only, with no optimizer
-state and no epoch counter.
 
 Writing your own
 ================
@@ -76,24 +66,16 @@ Writing your own
 ``state`` carries the model, datamodule, history, reporter, epoch index and this
 epoch's metrics. ``state.stop`` is the one field a callback may write.
 
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   BaseCallback
+   LoopState
+
 Related
 =======
 
 :doc:`trainer` takes the ``callbacks`` list and assembles it. The
 :doc:`callbacks tutorial </tutorials/callbacks>` runs both built-in callbacks
 together and reloads the checkpoint afterwards.
-
-.. autosummary::
-   :nosignatures:
-
-   BaseCallback
-   LoopState
-   HistoryCallback
-   EarlyStopping
-   ModelCheckpoint
-
-.. autoclass:: BaseCallback
-.. autoclass:: LoopState
-.. autoclass:: HistoryCallback
-.. autoclass:: EarlyStopping
-.. autoclass:: ModelCheckpoint

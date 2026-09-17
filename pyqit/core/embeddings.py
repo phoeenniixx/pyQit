@@ -42,7 +42,24 @@ class BaseEmbedding(_PyQitObject):
 
 
 class AngleEmbedding(BaseEmbedding):
-    """A wrapper for PennyLane's AngleEmbedding circuit."""
+    """One rotation per qubit, PennyLane's `AngleEmbedding`.
+
+    Takes one feature per wire. The `DataModule` zero-pads narrower input to
+    `n_qubits` columns and multiplies by pi, which maps features normalized to
+    `[0, 1]` onto `[0, pi]`. Input wider than `n_qubits` raises.
+
+    Parameters
+    ----------
+    n_qubits : int
+    rotation : {"X", "Y", "Z"}, default "X"
+        Rotation gate the features drive.
+
+    Examples
+    --------
+    >>> from pyqit.core import AngleEmbedding
+    >>> from pyqit.models import VQCClassifier
+    >>> model = VQCClassifier(n_qubits=4, encoder=AngleEmbedding)
+    """
 
     _tags = {
         "embedding_type": "angle",
@@ -106,7 +123,27 @@ class HadamardAngleEmbedding(BaseEmbedding):
 
 
 class AmplitudeEmbedding(BaseEmbedding):
-    """A wrapper for PennyLane's AmplitudeEmbedding circuit."""
+    """Features as state amplitudes, PennyLane's `AmplitudeEmbedding`.
+
+    `n_qubits` wires carry up to `2 ** n_qubits` features, so four qubits take
+    sixteen. The `DataModule` zero-pads each row to that width and
+    L2-normalizes it. Wider input raises.
+
+    Parameters
+    ----------
+    n_qubits : int
+    normalize : bool, default True
+        Passed to PennyLane's template, which renormalizes the state vector.
+    pad_with : float, default 0.0
+        Passed to PennyLane's template, which pads a short feature vector with
+        this value.
+
+    Examples
+    --------
+    >>> from pyqit.core import AmplitudeEmbedding
+    >>> from pyqit.models import VQCClassifier
+    >>> model = VQCClassifier(n_qubits=4, encoder=AmplitudeEmbedding)
+    """
 
     _tags = {
         "embedding_type": "amplitude",
@@ -136,7 +173,15 @@ class AmplitudeEmbedding(BaseEmbedding):
 
 
 class IQPEmbedding(BaseEmbedding):
-    """A wrapper for PennyLane's IQPEmbedding circuit."""
+    """IQP feature map of Havlicek et al. (2019), PennyLane's `IQPEmbedding`.
+
+    Takes one feature per wire, prescaled the way `AngleEmbedding` is. Needs at
+    least two qubits.
+
+    Parameters
+    ----------
+    n_qubits : int
+    """
 
     _tags = {
         "embedding_type": "iqp",
@@ -160,6 +205,10 @@ class IQPEmbedding(BaseEmbedding):
 
 class ZZFeatureMap(BaseEmbedding):
     """The second-order Pauli-Z feature map of Havlicek et al. (2019).
+
+    The feature map Qiskit ML's `VQC` uses. It is a different circuit from
+    `IQPEmbedding`. Takes one feature per wire, prescaled the way
+    `AngleEmbedding` is, and needs at least two qubits.
 
     Parameters
     ----------

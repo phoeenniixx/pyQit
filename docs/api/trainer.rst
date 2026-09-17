@@ -81,10 +81,8 @@ anything. ``check_bp`` runs the check described in :doc:`diagnostics`. The
 :doc:`VQC tutorial </tutorials/vqc>` is a full run.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
    Trainer
    TrainingHistory
-
-.. autoclass:: Trainer
-.. autoclass:: TrainingHistory

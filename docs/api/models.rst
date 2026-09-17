@@ -28,15 +28,37 @@ depth, an ansatz class and an embedding class, and wires them together:
 The ansatz and encoder arrive as classes, not instances. The model builds them
 with its own ``n_qubits``, so the two cannot disagree about width.
 
-:class:`VQCRegressor` is the same circuit read as a value: the parity
-``Z ⊗ ... ⊗ Z`` expectation, Qiskit ML's ``VQR`` default, through a trainable
-``scale * <Z> + offset`` head that starts at identity, so targets need no
-scaling. ``output_scale=False`` reproduces ``VQR``, whose targets must lie in
-``[-1, 1]``. The loops record accuracy as NaN for it.
+Available models
+================
 
-:class:`DataReuploadingClassifier` takes ``n_features`` instead of an encoder,
-because it re-encodes the input inside every layer (Perez-Salinas et al. 2020)
-and the DataModule leaves it unscaled.
+Each page gives the circuit, the paper it follows, every constructor argument
+and a runnable example.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   VQCClassifier
+   VQCRegressor
+   DataReuploadingClassifier
+   DressedQuantumClassifier
+
+Classifiers and regressors
+==========================
+
+A mixin decides how the Trainer reads a model's output.
+:class:`ClassifierMixin` turns it into class probabilities and hard labels.
+:class:`RegressorMixin` passes the raw output through, and the training loops
+record accuracy as NaN for it.
+
+Models that encode their own input
+==================================
+
+A model that takes ``encoder`` exposes the built embedding as ``embedding_obj``,
+and the DataModule prescales the input for it. A model that takes
+``n_features`` instead encodes the input inside its own circuit. It has no
+``embedding_obj``, so the DataModule normalizes the features and leaves them
+unscaled.
 
 Hybrid networks are pipelines
 =============================
@@ -113,7 +135,19 @@ raising, which is the kind of bug that produces plausible numbers for weeks.
 Beyond that, give the class an ``object_type`` tag of ``"model"`` and a
 ``get_test_params()`` method returning a list of kwarg dicts. There is no
 registration step. The suite discovers the class by walking the package and
-parametrizes every model test over it.
+parametrizes every model test over it. Then add the class name to the list
+above.
+
+You subclass these and never instantiate them directly.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   BaseModel
+   BaseQuantumModel
+   ClassifierMixin
+   RegressorMixin
 
 See :doc:`the contributing guide </contributing>` for the checklist and the PR conventions.
 
@@ -124,55 +158,3 @@ Related
 :doc:`measurements` decides what comes out of the circuit. :doc:`trainer` runs
 the model against a :doc:`datamodule`. The
 :doc:`VQC tutorial </tutorials/vqc>` walks through building and training one.
-
-Available models
-================
-
-.. autosummary::
-   :nosignatures:
-
-   VQCClassifier
-   VQCRegressor
-   DataReuploadingClassifier
-   DressedQuantumClassifier
-
-.. autoclass:: VQCClassifier
-.. autoclass:: VQCRegressor
-.. autoclass:: DataReuploadingClassifier
-.. autoclass:: DressedQuantumClassifier
-
-Layers
-======
-
-.. currentmodule:: pyqit.models.layers
-
-.. autosummary::
-   :nosignatures:
-
-   DenseLayer
-   QuantumLayer
-   DenseClassifier
-
-.. autoclass:: DenseLayer
-.. autoclass:: QuantumLayer
-.. autoclass:: DenseClassifier
-
-.. currentmodule:: pyqit.models
-
-Base classes and mixins
-=======================
-
-Subclass these to write a model; you never instantiate them directly.
-
-.. autosummary::
-   :nosignatures:
-
-   BaseModel
-   BaseQuantumModel
-   ClassifierMixin
-   RegressorMixin
-
-.. autoclass:: BaseModel
-.. autoclass:: BaseQuantumModel
-.. autoclass:: ClassifierMixin
-.. autoclass:: RegressorMixin

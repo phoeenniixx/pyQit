@@ -44,7 +44,14 @@ def cross_entropy_loss(preds, targets):
 
 
 class CrossEntropyLoss(BaseLoss):
-    """Cross entropy over class probabilities."""
+    """Cross entropy over class probabilities.
+
+    Select it with ``Trainer(loss_fn="cross_entropy")``. It takes the log of
+    the model's output directly, because models emit probabilities and
+    ``F.cross_entropy`` would apply its own log-softmax. A one-column output is
+    scored as binary against 0/1 labels. A ``(n_samples, n_classes)`` output is
+    scored against integer class indices in ``[0, n_classes - 1]``.
+    """
 
     _tags = {"name": "cross_entropy", "target_dtype": "int"}
 

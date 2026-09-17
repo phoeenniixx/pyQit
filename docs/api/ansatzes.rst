@@ -14,68 +14,16 @@ class you hand it, using the model's own qubit count.
 
    model = VQCClassifier(n_qubits=4, n_layers=3, ansatz=SELAnsatz)
 
-Every ansatz is a paper's circuit as its reference implementation defines it,
-never redesigned here. Depth comes from the model's ``n_layers``. More layers
-buy expressivity and cost you gradient variance, which is what the
-barren-plateau check measures.
+Available ansatzes
+==================
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 30 26 22
-
-   * - Ansatz
-     - Circuit
-     - Weights
-     - Reference
-   * - :class:`SELAnsatz`
-     - PennyLane ``StronglyEntanglingLayers``: three rotations per qubit and a
-       CNOT layer with a growing range.
-     - ``(n_layers, n_qubits, 3)``
-     - Schuld et al. 2020
-   * - :class:`BasicEntanglerAnsatz`
-     - PennyLane ``BasicEntanglerLayers``: one rotation per qubit (RX by
-       default, any gate via ``rotation``) and a CNOT ring.
-     - ``(n_layers, n_qubits)``
-     - Schuld et al. 2020
-   * - :class:`SimplifiedTwoDesignAnsatz`
-     - PennyLane ``SimplifiedTwoDesign``: an RY layer, then CZ pairs each
-       followed by RY. Needs at least two qubits. The circuit the local-cost
-       trainability result was proved on.
-     - ``initial_layer_weights (n_qubits,)`` and
-       ``weights (n_layers, n_qubits - 1, 2)``
-     - Cerezo et al. 2021
-   * - :class:`RealAmplitudesAnsatz`
-     - Qiskit ``real_amplitudes``: RY layers separated by CX entanglers,
-       ``entanglement`` as Qiskit accepts it. Qiskit ML's ``VQC`` default.
-     - Qiskit's flat ``θ`` vector, ``(n_qubits * (n_layers + 1),)``
-     - Kandala et al. 2017
-   * - :class:`EfficientSU2Ansatz`
-     - Qiskit ``efficient_su2``: RY and RZ layers separated by CX entanglers,
-       same options as above.
-     - Qiskit's flat ``θ`` vector, ``(2 * n_qubits * (n_layers + 1),)``
-     - Kandala et al. 2017
-
-The two Qiskit ansatzes are Qiskit's own circuit objects converted through the
-``pennylane-qiskit`` plugin. They need the ``qiskit`` extra. Together with
-:class:`~pyqit.core.ZZFeatureMap` they let a Qiskit user reproduce their numbers
-here.
-
-To add your own, subclass :class:`BaseAnsatz` and give it an ``object_type`` tag
-of ``"ansatz"``. Implement ``get_test_params()`` and the suite enrolls it
-automatically. See :doc:`the contributing guide </contributing>`.
-
-Related
-=======
-
-A :doc:`model <models>` builds the ansatz you give it. Depth is where gradients
-go to die, so pair this with :doc:`diagnostics` and the
-:doc:`barren-plateau tutorial </tutorials/barren_plateau>` before reaching for
-more layers.
+Every ansatz implements a published circuit. Its page names the paper, the
+gates in one layer and the shape of its weights.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
-   BaseAnsatz
    SELAnsatz
    BasicEntanglerAnsatz
    CNOTLadderAnsatz
@@ -83,10 +31,44 @@ more layers.
    RealAmplitudesAnsatz
    EfficientSU2Ansatz
 
-.. autoclass:: BaseAnsatz
-.. autoclass:: SELAnsatz
-.. autoclass:: BasicEntanglerAnsatz
-.. autoclass:: CNOTLadderAnsatz
-.. autoclass:: SimplifiedTwoDesignAnsatz
-.. autoclass:: RealAmplitudesAnsatz
-.. autoclass:: EfficientSU2Ansatz
+What every ansatz provides
+==========================
+
+``get_weight_shapes()`` returns a dict from weight name to shape. The model
+draws its initial weights from that dict, so the shapes are all a model needs
+to know about an ansatz. ``build_circuit(weights)`` takes a dict with the same
+keys and applies the gates.
+
+.. code-block:: python
+
+   SELAnsatz(n_qubits=4, n_layers=3).get_weight_shapes()
+   # {"weights": (3, 4, 3)}
+
+Depth comes from the model's ``n_layers``. More layers buy expressivity and cost
+you gradient variance, which is what the barren-plateau check measures.
+
+An ansatz that wraps another library's circuit names the package in its
+``python_dependencies`` tag. Building one without the package raises an
+``ImportError`` that names the extra to install.
+
+Adding an ansatz
+================
+
+Subclass :class:`BaseAnsatz` and implement ``build_circuit``,
+``get_weight_shapes`` and ``get_test_params()``. The ``object_type`` tag of
+``"ansatz"`` is inherited, and the test suite enrolls the class by walking the
+package. Then add its name to the list above. See
+:doc:`the contributing guide </contributing>`.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   BaseAnsatz
+
+Related
+=======
+
+A :doc:`model <models>` builds the ansatz you give it. Gradients shrink as depth
+grows, so run :doc:`diagnostics` and read the
+:doc:`barren-plateau tutorial </tutorials/barren_plateau>` before adding layers.

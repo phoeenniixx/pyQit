@@ -18,7 +18,20 @@ Pass a loss by name or hand :class:`~pyqit.core.Trainer` a callable:
 
    pyqit.Trainer(max_epochs=30, loss_fn=weighted_mse)
 
-Three losses ship built in: ``"mse"``, ``"hinge"`` and ``"cross_entropy"``.
+Available losses
+================
+
+The name you pass is the class's ``name`` tag, given on its page along with the
+targets it expects.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   MSELoss
+   HingeLoss
+   CrossEntropyLoss
+   get_loss_fn
 
 Models emit probabilities, not logits
 =====================================
@@ -45,7 +58,14 @@ One caveat costs people an afternoon. skbase's class walk skips modules whose
 name starts with an underscore, so a loss defined in a private module never
 registers and never says why.
 
-See :doc:`the contributing guide </contributing>`.
+Add the class name to the list above. See
+:doc:`the contributing guide </contributing>`.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   BaseLoss
 
 Related
 =======
@@ -54,18 +74,3 @@ Related
 emits, which is what the loss then scores. The
 :doc:`callbacks tutorial </tutorials/callbacks>` trains with
 ``loss_fn="cross_entropy"``.
-
-.. autosummary::
-   :nosignatures:
-
-   BaseLoss
-   MSELoss
-   HingeLoss
-   CrossEntropyLoss
-   get_loss_fn
-
-.. autoclass:: BaseLoss
-.. autoclass:: MSELoss
-.. autoclass:: HingeLoss
-.. autoclass:: CrossEntropyLoss
-.. autofunction:: get_loss_fn

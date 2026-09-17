@@ -28,10 +28,10 @@ What setup does, in order
    drives it, not the user.
 #. Apply any ``transform``.
 
-Prescaling explains why feature shaping is not your job. ``AngleEmbedding`` pads
-or truncates to ``n_qubits`` and multiplies by pi. ``AmplitudeEmbedding`` pads to
-``2 ** n_qubits`` and L2-normalizes. The model class picks the embedding, so the
-model class decides the shape.
+Prescaling explains why feature shaping is not your job. Each embedding names
+the shaping it needs, such as zero-padding to ``n_qubits`` and multiplying by
+pi, and ``setup()`` applies it. Input wider than the embedding takes raises.
+The model class picks the embedding, so the model class decides the shape.
 
 Repeated setup
 ==============
@@ -76,8 +76,7 @@ datamodule between sequential stages. Every
 :doc:`tutorial </tutorials/index>` starts by building one.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
    DataModule
-
-.. autoclass:: DataModule
