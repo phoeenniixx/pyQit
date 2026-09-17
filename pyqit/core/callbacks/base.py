@@ -43,7 +43,19 @@ class LoopState:
 
 
 class BaseCallback(_PyQitObject):
-    """Base class for pyqit callbacks."""
+    """Base class for pyqit callbacks.
+
+    Override any of the three hooks. Each takes one `LoopState`, and both
+    training loops call them, so a subclass works on either backend.
+
+    Examples
+    --------
+    >>> from pyqit.core import BaseCallback
+    >>> class StopWhenConverged(BaseCallback):
+    ...     def on_epoch_end(self, state):
+    ...         if state.metrics["train_loss"] < 0.01:
+    ...             state.stop = True
+    """
 
     _tags = {
         "object_type": "callback",

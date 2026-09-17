@@ -7,6 +7,7 @@ class BasicEntanglerAnsatz(BaseAnsatz):
     """Basic entangler layers: one rotation per qubit and a CNOT ring per layer.
 
     Wraps PennyLane's `BasicEntanglerLayers` (Schuld et al. 2020 lineage).
+    The weights are one tensor, `weights`, of shape `(n_layers, n_qubits)`.
 
     Parameters
     ----------
@@ -14,6 +15,14 @@ class BasicEntanglerAnsatz(BaseAnsatz):
     n_layers : int, default 2
     rotation : type, optional
         Single-qubit rotation gate class. PennyLane's default is `qml.RX`.
+
+    Examples
+    --------
+    >>> import pennylane as qml
+    >>> from pyqit.ansatzes import BasicEntanglerAnsatz
+    >>> ansatz = BasicEntanglerAnsatz(n_qubits=4, n_layers=2, rotation=qml.RY)
+    >>> ansatz.get_weight_shapes()
+    {'weights': (2, 4)}
     """
 
     def __init__(self, n_qubits: int, n_layers: int = 2, rotation=None):

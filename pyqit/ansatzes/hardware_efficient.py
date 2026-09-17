@@ -12,6 +12,10 @@ class RealAmplitudesAnsatz(BaseAnsatz):
     The circuit is Qiskit's own, converted through the `pennylane-qiskit`
     plugin, so it needs the `qiskit` extra and Python 3.11 or newer.
 
+    The weights are Qiskit's flat parameter vector, `weights`, of shape
+    `(n_qubits * (n_layers + 1),)`. With `skip_final_rotation_layer` it is
+    `(n_qubits * n_layers,)`.
+
     Parameters
     ----------
     n_qubits : int
@@ -22,6 +26,20 @@ class RealAmplitudesAnsatz(BaseAnsatz):
         Any entanglement Qiskit accepts, e.g. `"linear"`, `"full"`,
         `"circular"`.
     skip_final_rotation_layer : bool, default False
+
+    References
+    ----------
+    Kandala et al., "Hardware-efficient variational quantum eigensolver for
+    small molecules and quantum magnets", Nature 549, 242 (2017).
+
+    Examples
+    --------
+    >>> from pyqit.ansatzes import RealAmplitudesAnsatz
+    >>> from pyqit.core import ZZFeatureMap
+    >>> from pyqit.models import VQCClassifier
+    >>> model = VQCClassifier(
+    ...     n_qubits=2, ansatz=RealAmplitudesAnsatz, encoder=ZZFeatureMap
+    ... )
     """
 
     _tags = {"python_dependencies": "pennylane-qiskit"}
@@ -76,7 +94,8 @@ class EfficientSU2Ansatz(RealAmplitudesAnsatz):
     """Qiskit's `EfficientSU2`: RY and RZ layers separated by CX entanglers.
 
     `RealAmplitudesAnsatz` with an RZ layer after every RY layer, Qiskit's
-    default `su2_gates`. Same parameters and the same reference.
+    default `su2_gates`. Same parameters and the same reference. The second
+    rotation doubles the weight vector to `(2 * n_qubits * (n_layers + 1),)`.
     """
 
     _qiskit_circuit = "efficient_su2"

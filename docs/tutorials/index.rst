@@ -2,8 +2,8 @@
 Tutorials
 =========
 
-Three worked notebooks. Each one runs end to end and CI executes them on every
-change, so the outputs you see are the outputs they produce.
+Find some examples on how to use `pyqit` here:
+
 
 :doc:`vqc`
    Trains a :class:`~pyqit.models.VQCClassifier` on a synthetic dataset using the

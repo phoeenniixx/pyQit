@@ -2,12 +2,16 @@ import pennylane as qml
 
 
 def measure_probs(wires):
-    """Returns probabilities for the specified wires."""
+    """Return the ``2 ** len(wires)`` basis-state probabilities of `wires`."""
     return qml.probs(wires=wires)
 
 
 def measure_expval_z(wires):
-    """Returns PauliZ expectation for EACH specified wire."""
+    """Return the PauliZ expectation of each wire in `wires`.
+
+    One wire gives a single value in ``[-1, 1]``, several give a tuple with
+    one value per wire.
+    """
     if len(wires) == 1:
         return qml.expval(qml.PauliZ(wires[0]))
     else:
@@ -15,7 +19,10 @@ def measure_expval_z(wires):
 
 
 def measure_expval_x(wires):
-    """Returns PauliX expectation (useful for some physics Hamiltonians)."""
+    """Return the PauliX expectation of each wire in `wires`.
+
+    Same shapes as `measure_expval_z`.
+    """
     if len(wires) == 1:
         return qml.expval(qml.PauliX(wires[0]))
     else:

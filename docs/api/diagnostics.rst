@@ -66,10 +66,8 @@ is local or global. Both move the verdict. :doc:`trainer` runs the check through
 circuit next to a healthy one.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
    check_barren_plateau
    BPResult
-
-.. autofunction:: check_barren_plateau
-.. autoclass:: BPResult

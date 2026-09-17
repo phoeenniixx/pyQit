@@ -15,7 +15,9 @@ class ModelCheckpoint(BaseCallback):
     the final epoch (``save_last``), and a periodic snapshot
     (``every_n_epochs``). The policy is backend-neutral; only serialization
     forks -- a ``.ckpt`` holding a ``state_dict`` on torch, an ``.npz`` on
-    pennylane. Array keys are ``model.weights`` keys on both.
+    pennylane. Array keys are ``model.weights`` keys on both. The files hold
+    weights only, with no optimizer state and no epoch counter, so they cannot
+    resume a run.
 
     Parameters
     ----------

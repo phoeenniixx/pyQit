@@ -23,7 +23,13 @@ def hinge_loss(preds, targets):
 
 
 class HingeLoss(BaseLoss):
-    """Hinge loss for binary labels encoded as 0/1."""
+    """Hinge loss for binary labels encoded as 0/1.
+
+    Select it with ``Trainer(loss_fn="hinge")``. Models emit class-1
+    probabilities, so both the probability and the label are mapped onto
+    ``[-1, 1]`` before the margin is taken. A confident correct prediction
+    reaches zero loss.
+    """
 
     _tags = {"name": "hinge"}
 

@@ -5,7 +5,7 @@ Pipelines
 .. currentmodule:: pyqit.core
 
 :class:`QuantumPipeline` composes several models into one object that still
-behaves like a model, so the same :class:`~pyqit.Trainer` fits, evaluates and
+behaves like a model, so the same :class:`~pyqit.core.Trainer` fits, evaluates and
 predicts it. Two things are configurable and they answer different questions.
 ``mode`` decides how stages relate to each other. ``fit_mode`` decides how they
 get trained.
@@ -80,7 +80,7 @@ How stages get trained
 ``fit_mode`` is set on the pipeline and applies to sequential pipelines only.
 Ensemble pipelines train each trainable stage independently on the same data, so
 there is nothing to sequence. Every trainable stage trains under the one
-:class:`~pyqit.Trainer` handed to ``Trainer.fit``.
+:class:`~pyqit.core.Trainer` handed to ``Trainer.fit``.
 
 ``"sequential_greedy"`` (default)
    Trains each stage in turn against the data produced by the stages before it.
@@ -135,10 +135,8 @@ second half of the :doc:`VQC tutorial </tutorials/vqc>` builds a
 frozen-backbone pipeline end to end.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
    QuantumPipeline
    PipelineStage
-
-.. autoclass:: QuantumPipeline
-.. autoclass:: PipelineStage

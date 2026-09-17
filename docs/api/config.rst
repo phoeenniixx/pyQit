@@ -60,12 +60,9 @@ why the order on this page matters. :doc:`datamodule` picks its loader from the
 same setting.
 
 .. autosummary::
+   :toctree: generated/
    :nosignatures:
 
    set_backend
    get_backend
    set_seed
-
-.. autofunction:: set_backend
-.. autofunction:: get_backend
-.. autofunction:: set_seed

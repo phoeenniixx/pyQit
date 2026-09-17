@@ -106,3 +106,4 @@ lightning_logs/
 
 # sphinx build output
 docs/_build/
+docs/api/generated/

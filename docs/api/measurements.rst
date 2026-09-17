@@ -19,9 +19,36 @@ use. Pass one as ``measure_fn``, and name the wires with ``measure_wires``:
        measure_wires=[0],
    )
 
-:class:`~pyqit.models.VQCClassifier` picks a sensible default when you leave
-``measure_fn`` unset: PauliZ expectation for binary problems, probabilities
-otherwise.
+A model picks a default when you leave ``measure_fn`` unset, and its page says
+which.
+
+Available measurements
+======================
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   measure_probs
+   measure_expval_z
+   measure_expval_x
+
+Writing your own
+================
+
+A measurement function takes the list of wires and returns a PennyLane
+measurement, or a tuple of them. The model calls it as the last step of the
+circuit.
+
+.. code-block:: python
+
+   import pennylane as qml
+
+   def measure_expval_y(wires):
+       return tuple(qml.expval(qml.PauliY(w)) for w in wires)
+
+Local and global cost
+=====================
 
 The choice also affects the barren-plateau baseline. Measuring fewer wires than
 you have qubits counts as a local cost, with a floor of ``1 / 2 ** n_qubits``.
@@ -34,14 +61,3 @@ Related
 :doc:`models` takes ``measure_fn`` and ``measure_wires``. :doc:`diagnostics`
 explains how the local and global baselines differ, and
 :doc:`losses` covers what the outputs then feed into.
-
-.. autosummary::
-   :nosignatures:
-
-   measure_probs
-   measure_expval_z
-   measure_expval_x
-
-.. autofunction:: measure_probs
-.. autofunction:: measure_expval_z
-.. autofunction:: measure_expval_x

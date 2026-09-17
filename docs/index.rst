@@ -2,17 +2,17 @@
 PyQit
 =====
 
-A high-level quantum machine learning framework built on PennyLane. It puts a
-Trainer, DataModule and Model layer over PennyLane QNodes, so training a
-variational circuit does not mean hand-rolling an optimizer loop.
+PyQit is a quantum machine learning framework built on PennyLane. It adds a
+Trainer, a DataModule and a set of models on top of PennyLane QNodes, so you
+train a variational circuit by calling ``trainer.fit(model, dm)``.
 
 .. warning::
 
    Version |release|. The API is unstable and still changing.
 
-PyQit runs on PennyLane and NumPy alone. PyTorch and PyTorch Lightning are
-optional. If you do not need hybrid models or Lightning's orchestration, you do
-not have to install them.
+The base install needs only PennyLane and NumPy. PyTorch and PyTorch Lightning
+are optional. Installing them adds a second backend that trains through
+Lightning.
 
 Quickstart
 ==========
@@ -51,76 +51,69 @@ rich.
 How it works
 ============
 
-Three objects do the work, and they stay separate on purpose.
+A run involves three objects.
 
 A :doc:`DataModule <api/datamodule>` holds the data and does nothing with it
-until ``setup()`` runs. It splits, then normalizes with a normalizer fitted on
-the training split only, then prescales the features for the circuit.
+until ``setup()`` runs, which the Trainer calls for you. It splits the data,
+normalizes it with statistics fitted on the training split only, then prescales
+the features for the circuit.
 
 A :doc:`model <api/models>` owns the QNode. It composes an
-:doc:`ansatz <api/ansatzes>`, which holds the trainable weights, with an
-:doc:`embedding <api/embeddings>`, which maps features onto wires, and a
+:doc:`embedding <api/embeddings>`, which maps features onto wires, an
+:doc:`ansatz <api/ansatzes>`, which holds the trainable weights, and a
 :doc:`measurement <api/measurements>`, which turns the final state into numbers.
 
 A :doc:`Trainer <api/trainer>` runs the two together. It seeds, sets up the
-data, assembles :doc:`callbacks <api/callbacks>`, and hands off to a training
-loop picked by the active backend.
+data, assembles :doc:`callbacks <api/callbacks>`, and hands off to the training
+loop of the active backend.
 
-The piece that catches people is that the model, not the user, decides input
-shaping. The embedding carries a tag saying what shape the circuit needs, and
-``setup()`` reads that tag. Angle encoding pads to one feature per wire and
-scales by pi. Amplitude encoding pads to ``2 ** n_qubits`` and L2-normalizes.
-You do not reshape anything by hand.
+The model decides how its input is shaped. Each embedding carries a tag naming
+the prescaling its circuit needs, such as zero-padding to one feature per wire
+and multiplying by pi, and ``setup()`` applies it. You do not reshape features
+by hand. Input wider than the embedding takes raises an error.
 
-One backend switch, same everything else
-========================================
+Switching backends
+==================
 
 .. code-block:: python
 
    pyqit.set_backend("torch")     # raises ImportError if torch is missing
 
-That is the whole change. The QNode gets wrapped in a ``qml.qnn.TorchLayer`` and
-training runs through Lightning. Your model, callbacks and history are
-unchanged.
+The torch backend wraps the QNode in a ``qml.qnn.TorchLayer`` and trains through
+Lightning. Models, callbacks and the returned history work the same way on both
+backends.
 
-Backend selection is global and every object reads it once, in its own
-``__init__``. So set the backend, and the seed, before you build anything.
-:doc:`api/config` covers the ordering and what it affects.
+The backend is a global setting, and each object reads it once in its
+``__init__``. Set the backend and the seed before you build a model.
+:doc:`api/config` covers the ordering.
 
-What you get
-============
+Features
+========
 
-:doc:`Callbacks <api/callbacks>` that work on both backends. ``EarlyStopping``
-and ``ModelCheckpoint`` are written once and honoured by the PennyLane loop and
-the Lightning loop alike. Lightning callbacks are rejected on purpose, because
-the PennyLane loop could only ignore them.
+- :doc:`Callbacks <api/callbacks>` for early stopping and checkpointing that
+  run on both backends. PyQit does not accept Lightning callbacks, because the
+  PennyLane loop cannot run them.
+- A :doc:`barren-plateau diagnostic <api/diagnostics>`. It samples gradients at
+  random weights and compares their variance against a theoretical floor.
+  ``Trainer(check_bp=True)`` runs it before training starts.
+- :doc:`Pipelines <api/pipeline>` that compose models in sequence or as an
+  ensemble, including a frozen backbone with a trainable head.
+- :doc:`Losses <api/losses>` selected by name. A callable works anywhere a name
+  does.
+- Any PennyLane :doc:`device <api/models>`, plugins included. The
+  PennyLane-Qiskit plugin is tested through its local simulators.
+  ``Trainer(verbose=2)`` prints the differentiation method PennyLane picks for
+  the device, which sets how many circuits each gradient costs.
 
-A :doc:`barren-plateau diagnostic <api/diagnostics>`. It samples gradients at
-random weights and compares the variance against a theoretical floor, so you
-find out that a circuit cannot train before you spend an hour training it.
-``Trainer(check_bp=True)`` runs it as a pre-flight check.
-
-:doc:`Pipelines <api/pipeline>` that compose models in sequence or as an
-ensemble, including a frozen backbone with a trainable head.
-
-:doc:`Losses <api/losses>` with ``mse``, ``hinge`` and ``cross_entropy`` built
-in, and callables accepted anywhere a name is.
-
-Any PennyLane :doc:`device <api/models>`, plugins included. The
-PennyLane-Qiskit plugin is tested through its local simulators, and
-``Trainer(verbose=2)`` prints which differentiation method a device gets, since
-that is what decides whether a run takes seconds or a queue.
-
-Extending any of this means writing a class and tagging it. There is no
-registration step, and the test suite picks it up automatically. See
-:doc:`contributing`.
+To add a model, ansatz, embedding or loss, write a class and tag it. The test
+suite finds it by walking the package. See :doc:`contributing`.
 
 Where to go next
 ================
 
-:doc:`tutorials/index` has three worked notebooks, and the
-:doc:`VQC tutorial <tutorials/vqc>` is the place to start. The
-:doc:`api_reference` documents every public class, one page per kind of module.
+:doc:`tutorials/index` has three worked notebooks. Start with the
+:doc:`VQC tutorial <tutorials/vqc>`. The :doc:`api_reference` has one page per
+kind of object and one page per class.
 
 .. toctree::
    :hidden:
