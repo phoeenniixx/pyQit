@@ -66,14 +66,38 @@ pick the backend before you build it.
 Training through PyTorch Lightning
 ==================================
 
-With the ``pytorch`` extra installed, one call moves training to Lightning.
+With the ``pytorch`` extra installed, the same model trains through Lightning.
+Set the backend before you build the model, because every object reads it once
+in ``__init__``. A model built earlier stays on the backend it was built with.
 
 .. code-block:: python
 
    pyqit.set_backend("torch")     # raises ImportError if torch is missing
+   pyqit.set_seed(42)
 
-Everything after that line is the same code. Lightning settings go through
-``Trainer(backend_kwargs=...)``.
+   dm = pyqit.DataModule(X, y, normalize="minmax", batch_size=16)
+   model = VQCClassifier(
+       n_qubits=4,
+       n_layers=3,
+       ansatz=SELAnsatz,
+       encoder=AngleEmbedding,
+   )
+
+   trainer = pyqit.Trainer(
+       max_epochs=30,
+       learning_rate=0.05,
+       backend_kwargs={"enable_model_summary": True},
+   )
+   history = trainer.fit(model, dm)
+   preds = trainer.predict(model, dm, return_format="numpy")
+
+The Trainer, the DataModule, callbacks and the history do not change. Anything
+Lightning's own ``Trainer`` accepts goes through ``backend_kwargs``. Training
+stays on the CPU unless you ask for an accelerator there. ``predict`` returns
+whatever the backend produces by default, so pass ``return_format`` when you
+want a numpy array.
+
+:doc:`api/config` covers the backend and seed ordering in detail.
 
 Next
 ====
