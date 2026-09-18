@@ -1,23 +1,118 @@
-"""Callback saving model weights during and after training."""
+"""Callback saving model checkpoints during and after training.
 
+A checkpoint file holds what other frameworks keep together with the weights:
+the optimizer's state and the run's history to that epoch, so ``resume_from``
+picks a run up where the file left it. What a run depends on beyond the model,
+such as the fitted preprocessing in a ``DataModule``, is saved on request by
+its own object (``DataModule.save``).
+"""
+
+import copy
 import os
+import warnings
 
 import numpy as np
 
 from pyqit.core.callbacks.base import BaseCallback, LoopState
-from pyqit.utils.utils import _is_torch, _restore_weights, _snapshot_weights
+from pyqit.utils.utils import (
+    _is_torch,
+    _restore_weights,
+    _snapshot_weights,
+    _to_numpy,
+)
+
+_HISTORY_KEYS = ("train_loss", "val_loss", "train_acc", "val_acc", "epoch_times")
+
+
+def _optimizer_state(optimizer):
+    """A detached copy of what the optimizer accumulates, on either backend."""
+    if hasattr(optimizer, "state_dict"):
+        return copy.deepcopy(optimizer.state_dict())
+    return copy.deepcopy(getattr(optimizer, "accumulation", None))
+
+
+def _snapshot(state: LoopState, n_epochs: int | None = None) -> dict:
+    """Weights, optimizer state and the first ``n_epochs`` rows of the history."""
+    history = state.history.as_dict()
+    return {
+        "weights": _snapshot_weights(state.model),
+        "optimizer": _optimizer_state(state.optimizer),
+        "history": {k: list(v[:n_epochs]) for k, v in history.items()},
+    }
+
+
+def _write_checkpoint(path: str, snapshot: dict) -> None:
+    if path.endswith(".ckpt"):
+        import torch
+
+        weights = {k: torch.as_tensor(v) for k, v in snapshot["weights"].items()}
+        torch.save(
+            {
+                "state_dict": weights,
+                "optimizer": snapshot["optimizer"],
+                "history": snapshot["history"],
+            },
+            path,
+        )
+        return
+
+    arrays = {f"weights/{k}": np.asarray(v) for k, v in snapshot["weights"].items()}
+    for key, series in snapshot["history"].items():
+        arrays[f"history/{key}"] = np.asarray(series, dtype=float)
+    accumulation = snapshot["optimizer"]
+    if accumulation is not None:
+        arrays["optimizer/t"] = accumulation["t"]
+        for moment in ("fm", "sm"):
+            for i, value in enumerate(accumulation[moment]):
+                arrays[f"optimizer/{moment}{i}"] = np.asarray(value)
+    np.savez(path, **arrays)
+
+
+def _read_checkpoint(path: str) -> dict:
+    """The ``weights``, ``optimizer`` and ``history`` a checkpoint file holds."""
+    if path.endswith(".ckpt"):
+        import torch
+
+        data = torch.load(path, weights_only=False)
+        return {
+            "weights": {k: _to_numpy(v) for k, v in data["state_dict"].items()},
+            "optimizer": data["optimizer"],
+            "history": data["history"],
+        }
+
+    data = np.load(path)
+    optimizer = None
+    if "optimizer/t" in data.files:
+        n = sum(k.startswith("optimizer/fm") for k in data.files)
+        optimizer = {
+            "t": int(data["optimizer/t"]),
+            "fm": [data[f"optimizer/fm{i}"] for i in range(n)],
+            "sm": [data[f"optimizer/sm{i}"] for i in range(n)],
+        }
+    return {
+        "weights": {
+            k[len("weights/") :]: data[k]
+            for k in data.files
+            if k.startswith("weights/")
+        },
+        "optimizer": optimizer,
+        "history": {
+            k[len("history/") :]: data[k].tolist()
+            for k in data.files
+            if k.startswith("history/")
+        },
+    }
 
 
 class ModelCheckpoint(BaseCallback):
-    """Save model weights, and optionally restore the best epoch's.
+    """Save checkpoints, restore the best epoch's weights, or resume from one.
 
-    Three things can be written, independently: the best epoch (``save_best``),
+    Three files can be written, independently: the best epoch (``save_best``),
     the final epoch (``save_last``), and a periodic snapshot
-    (``every_n_epochs``). The policy is backend-neutral; only serialization
-    forks -- a ``.ckpt`` holding a ``state_dict`` on torch, an ``.npz`` on
-    pennylane. Array keys are ``model.weights`` keys on both. The files hold
-    weights only, with no optimizer state and no epoch counter, so they cannot
-    resume a run.
+    (``every_n_epochs``). Each holds the weights, the optimizer's state and the
+    history up to that epoch, so any of them resumes the run. The policy is
+    backend-neutral; only serialization forks -- a ``.ckpt`` on torch, an
+    ``.npz`` on pennylane. Weights are keyed by ``model.weights`` keys on both.
 
     Parameters
     ----------
@@ -33,9 +128,9 @@ class ModelCheckpoint(BaseCallback):
     mode : {"min", "max"}, default "min"
         Whether a lower or higher value of ``monitor`` is better.
     save_best : bool, default True
-        Write the best epoch's weights.
+        Write the best epoch's checkpoint.
     save_last : bool, default False
-        Write the final epoch's weights. Written before any restore, so the
+        Write the final epoch's checkpoint. Written before any restore, so the
         file holds the last epoch even when ``restore_best`` is on.
     every_n_epochs : int, optional
         Also write a snapshot every N epochs, named by the zero-based epoch
@@ -49,6 +144,13 @@ class ModelCheckpoint(BaseCallback):
         Load the best weights back into the model when training ends. Defaults
         to ``save_best``, so asking only for the last epoch does not silently
         hand back the best one.
+    resume_from : str, optional
+        A checkpoint written by this callback. Before the first epoch its
+        weights are loaded into the model, its history into the run's, so
+        training continues from the next epoch within ``max_epochs``, and its
+        optimizer state into the optimizer the loop builds. A file from the
+        other backend restores weights and history only, with a warning, since
+        optimizer state does not transfer.
 
     Attributes
     ----------
@@ -60,6 +162,31 @@ class ModelCheckpoint(BaseCallback):
         Paths written, once anything has been.
     periodic_paths : list of str
         Paths written by ``every_n_epochs``, in order.
+
+    Notes
+    -----
+    A file from the other backend restores the weights and history and warns
+    that the optimizer starts fresh, since its state does not transfer.
+    Callbacks that track improvement, `EarlyStopping` and the best epoch here,
+    start their count over on a resumed run. The fitted preprocessing is not in
+    the file; it is the DataModule's own artifact, saved with
+    `DataModule.save` when wanted.
+
+    Examples
+    --------
+    Save the last epoch, then pick the run up from it two epochs later:
+
+    >>> import pyqit
+    >>> from pyqit.core import ModelCheckpoint
+    >>> saving = ModelCheckpoint(dirpath="ckpts", save_best=False, save_last=True)
+    >>> pyqit.Trainer(max_epochs=2, callbacks=[saving]).fit(model, dm)  # doctest: +SKIP
+    >>> resuming = ModelCheckpoint(save_best=False, resume_from="ckpts/last.npz")
+    >>> history = pyqit.Trainer(max_epochs=4, callbacks=[resuming]).fit(
+    ...     model, dm
+    ... )  # doctest: +SKIP
+
+    The history's length is the next epoch, so this trains epochs 2 and 3, and
+    Adam keeps its moment estimates.
     """
 
     def __init__(
@@ -73,6 +200,7 @@ class ModelCheckpoint(BaseCallback):
         every_n_epochs: int | None = None,
         save_on_improve: bool = False,
         restore_best: bool | None = None,
+        resume_from: str | None = None,
     ):
         if mode not in ("min", "max"):
             raise ValueError(f"mode must be 'min' or 'max', got {mode!r}.")
@@ -89,15 +217,17 @@ class ModelCheckpoint(BaseCallback):
         self.every_n_epochs = every_n_epochs
         self.save_on_improve = save_on_improve
         self.restore_best = restore_best
+        self.resume_from = resume_from
         super().__init__()
 
         self._restore_best = save_best if restore_best is None else restore_best
 
-        if not (save_best or save_last or every_n_epochs) and not self._restore_best:
+        does_nothing = not (save_best or save_last or every_n_epochs or resume_from)
+        if does_nothing and not self._restore_best:
             raise ValueError(
                 "ModelCheckpoint would do nothing: it writes no file and does "
-                "not restore. Set save_best, save_last, every_n_epochs or "
-                "restore_best."
+                "not restore. Set save_best, save_last, every_n_epochs, "
+                "restore_best or resume_from."
             )
 
         self.best_score: float = float("inf") if mode == "min" else float("-inf")
@@ -106,7 +236,7 @@ class ModelCheckpoint(BaseCallback):
         self.last_path: str | None = None
         self.periodic_paths: list[str] = []
         self._monitor: str | None = monitor
-        self._best_weights: dict | None = None
+        self._best: dict | None = None
 
     def _is_better(self, score: float) -> bool:
         if score != score:  # NaN never improves on anything
@@ -126,11 +256,45 @@ class ModelCheckpoint(BaseCallback):
     def _tracks_best(self) -> bool:
         return self.save_best or self._restore_best
 
+    def on_fit_start(self, state: LoopState) -> None:
+        """Load ``resume_from`` into the model, the history and the optimizer."""
+        if self.resume_from is None:
+            return
+        checkpoint = _read_checkpoint(self.resume_from)
+        if not checkpoint["weights"]:
+            raise ValueError(
+                f"{self.resume_from} holds no weights; it was not written by "
+                "ModelCheckpoint, or predates its current format."
+            )
+        _restore_weights(state.model, checkpoint["weights"])
+        for epoch, row in enumerate(
+            zip(*(checkpoint["history"][k] for k in _HISTORY_KEYS))
+        ):
+            state.history.record(epoch, *row)
+
+        torch_file = self.resume_from.endswith(".ckpt")
+        torch_model = any(_is_torch(v) for v in state.model.weights.values())
+        if torch_file != torch_model:
+            warnings.warn(
+                f"{self.resume_from} was written by the other backend: its "
+                "weights and history are restored, but optimizer state does not "
+                "transfer, so the optimizer starts fresh.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            state.optimizer_state = checkpoint["optimizer"]
+        state.reporter.success(
+            f"Resumed from {self.resume_from} at epoch "
+            f"{len(state.history.train_loss)}",
+            tag="Checkpoint",
+        )
+
     def on_epoch_end(self, state: LoopState) -> None:
         """Track the best epoch and write any periodic snapshot."""
         if self.every_n_epochs and (state.epoch + 1) % self.every_n_epochs == 0:
             path = self._write(
-                state.model, _snapshot_weights(state.model), f"epoch{state.epoch}"
+                state.model, _snapshot(state, state.epoch + 1), f"epoch{state.epoch}"
             )
             self.periodic_paths.append(path)
             state.reporter.success(f"Epoch {state.epoch} -> {path}", tag="Checkpoint")
@@ -151,10 +315,10 @@ class ModelCheckpoint(BaseCallback):
 
         self.best_score = score
         self.best_epoch = state.epoch
-        self._best_weights = _snapshot_weights(state.model)
+        self._best = _snapshot(state, state.epoch + 1)
 
         if self.save_best and self.save_on_improve:
-            self.best_path = self._write(state.model, self._best_weights, self.filename)
+            self.best_path = self._write(state.model, self._best, self.filename)
             state.reporter.success(
                 f"New best ({monitor}: {score:.4f}) -> {self.best_path}",
                 tag="Checkpoint",
@@ -163,41 +327,30 @@ class ModelCheckpoint(BaseCallback):
     def on_fit_end(self, state: LoopState) -> None:
         """Write the requested files, then restore the best weights."""
         if self.save_last:
-            self.last_path = self._write(
-                state.model, _snapshot_weights(state.model), "last"
-            )
+            self.last_path = self._write(state.model, _snapshot(state), "last")
             state.reporter.success(f"Last epoch -> {self.last_path}", tag="Checkpoint")
 
         if self.save_best and not self.save_on_improve:
-            weights = self._best_weights or _snapshot_weights(state.model)
-            self.best_path = self._write(state.model, weights, self.filename)
+            snapshot = self._best or _snapshot(state)
+            self.best_path = self._write(state.model, snapshot, self.filename)
 
-        if self._restore_best and self._best_weights is not None:
-            _restore_weights(state.model, self._best_weights)
+        if self._restore_best and self._best is not None:
+            _restore_weights(state.model, self._best["weights"])
             state.reporter.success(
                 f"Restored best weights from epoch {self.best_epoch} "
                 f"({self._monitor}: {self.best_score:.4f})",
                 tag="Checkpoint",
             )
 
-    def _write(self, model, weights: dict, stem: str) -> str:
-        """Serialize ``weights`` in the active backend's format; return the path."""
+    def _write(self, model, snapshot: dict, stem: str) -> str:
+        """Serialize ``snapshot`` in the active backend's format; return the path."""
         directory = self.dirpath or "checkpoints"
         os.makedirs(directory, exist_ok=True)
         torch_backend = any(_is_torch(v) for v in model.weights.values())
-
-        if torch_backend:
-            import torch
-
-            path = os.path.join(directory, f"{stem}.ckpt")
-            torch.save(
-                {"state_dict": {k: torch.as_tensor(v) for k, v in weights.items()}},
-                path,
-            )
-            return path
-
-        path = os.path.join(directory, f"{stem}.npz")
-        np.savez(path, **{k: np.asarray(v) for k, v in weights.items()})
+        path = os.path.join(
+            directory, f"{stem}.ckpt" if torch_backend else f"{stem}.npz"
+        )
+        _write_checkpoint(path, snapshot)
         return path
 
     @classmethod

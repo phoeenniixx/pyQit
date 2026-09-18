@@ -97,8 +97,10 @@ there is nothing to sequence. Every trainable stage trains under the one
    returns a single ``TrainingHistory``. Gradients pass through every stage,
    frozen ones included, so a stage in front of a frozen circuit still learns.
    Nothing is materialized. Every stage runs on every batch, which costs more
-   circuit executions than the other two modes. ``check_bp`` is rejected here.
-   Run ``check_barren_plateau`` on the quantum stage's model instead.
+   circuit executions than the other two modes. ``check_bp`` samples the
+   pipeline's weights and reads the floor off its one trainable quantum stage;
+   a pipeline training two quantum stages is rejected, since each would need
+   its own floor.
 
 Hybrid networks
 ===============

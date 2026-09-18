@@ -30,9 +30,6 @@ class PennyLaneLoop(BaseTrainingLoop):
         loss_fn = get_loss_fn(trainer.loss_fn, backend="pennylane")
 
         weight_keys = list(model.weights.keys())
-        current_weights = [
-            pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
-        ]
 
         train_loader = datamodule.train_loader()
         val_loader = datamodule.val_loader(shuffle=False)
@@ -48,12 +45,23 @@ class PennyLaneLoop(BaseTrainingLoop):
             captured["preds"] = qml.math.unwrap(preds)
             return loss_fn(preds, y_b)
 
-        opt = self._make_optimizer(trainer)
-
         self._emit(callbacks, "on_fit_start", state)
 
+        opt = self._make_optimizer(trainer)
+        if state.optimizer_state is not None:
+            if not hasattr(opt, "accumulation"):
+                raise ValueError(
+                    f"An optimizer state was given, but {type(opt).__name__} "
+                    "carries none. Resume with the optimizer that wrote it."
+                )
+            opt.accumulation = state.optimizer_state
+        state.optimizer = opt
+        current_weights = [
+            pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
+        ]
+
         with self.reporter.progress() as progress:
-            for epoch in range(trainer.max_epochs):
+            for epoch in range(len(state.history.train_loss), trainer.max_epochs):
                 t0 = time.time()
                 batch_losses, batch_sizes = [], []
                 correct = total = 0

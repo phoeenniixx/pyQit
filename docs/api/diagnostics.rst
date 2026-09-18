@@ -49,6 +49,14 @@ fewer measured wires than qubits, uses ``1 / 2 ** n_qubits``. A global cost uses
 ``1 / (3 * 4 ** (n_qubits - 1))``, which shrinks much faster. Classifier models
 scale the baseline further through their ``bp_scale_factor`` tag.
 
+Only circuit weights are drawn at random. Classical weights, such as a
+regressor's output scale or the dense layers of a hybrid, are held at their
+current values, so the reported variance is the circuit's and not the product
+of the circuit's gradient with a random scale. Their own gradients are still
+collected and reported as ``classical_variance``. A jointly trained
+:class:`~pyqit.core.pipeline.QuantumPipeline` is sampled the same way, with the
+floor taken from its one trainable quantum stage.
+
 Each sample costs one gradient, and what a gradient costs depends on the device.
 Under backprop it is one circuit execution. Under parameter-shift, which
 shot-based devices and hardware use, it is ``1 + 2 * n_params``. The result

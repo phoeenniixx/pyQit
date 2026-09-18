@@ -31,12 +31,12 @@ def _model(n_qubits=3, n_layers=1, **kwargs):
     return VQCClassifier(n_qubits=n_qubits, n_layers=n_layers, **kwargs)
 
 
-def _dm(n_qubits=3, n_samples=16, batch_size=8, split=(0.6, 0.2, 0.2)):
+def _dm(n_qubits=3, n_samples=16, batch_size=8, split=(0.6, 0.2, 0.2), **kwargs):
     scenario = make_scenario(
         n_samples=n_samples, n_features=n_qubits, n_classes=2, seed=42
     )
     return DataModule(
-        X=scenario["X"], y=scenario["y"], batch_size=batch_size, split=split
+        X=scenario["X"], y=scenario["y"], batch_size=batch_size, split=split, **kwargs
     )
 
 
@@ -283,11 +283,9 @@ def test_predict_return_format(return_format):
 
 
 def _load(path):
-    if path.endswith(".ckpt"):
-        import torch
+    from pyqit.core.callbacks.checkpoint import _read_checkpoint
 
-        return torch.load(path, weights_only=False)["state_dict"]
-    return dict(np.load(path))
+    return _read_checkpoint(path)["weights"]
 
 
 def _weights_equal(a, b):
@@ -322,6 +320,80 @@ def test_every_n_epochs_writes_periodic_snapshots(tmp_path):
         "epoch1.npz",
         "epoch3.npz",
     ]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_resuming_from_a_checkpoint_continues_the_run(backend, tmp_path):
+    """Two epochs, then two more from the file, is four straight epochs."""
+    _require(backend)
+    ext = "ckpt" if backend == "torch" else "npz"
+
+    straight = _model()
+    full = Trainer(max_epochs=4, verbose=0, seed=0).fit(straight, _dm(shuffle=False))
+
+    saving = ModelCheckpoint(dirpath=str(tmp_path), save_best=False, save_last=True)
+    Trainer(max_epochs=2, verbose=0, seed=0, callbacks=[saving]).fit(
+        _model(), _dm(shuffle=False)
+    )
+
+    resuming = ModelCheckpoint(save_best=False, resume_from=f"{tmp_path}/last.{ext}")
+    resumed = _model()
+    history = Trainer(max_epochs=4, verbose=0, seed=0, callbacks=[resuming]).fit(
+        resumed, _dm(shuffle=False)
+    )
+
+    assert history.train_loss == pytest.approx(full.train_loss, rel=1e-5)
+    assert history.val_loss == pytest.approx(full.val_loss, rel=1e-5)
+    for key in straight.weights:
+        np.testing.assert_allclose(
+            _to_numpy(resumed.weights[key]), _to_numpy(straight.weights[key]), rtol=1e-5
+        )
+
+
+def test_a_checkpoint_from_the_other_backend_restores_all_but_the_optimizer(
+    tmp_path,
+):
+    from pyqit.utils.utils import _snapshot_weights
+
+    pytest.importorskip("torch")
+    _require("pennylane")
+    saving = ModelCheckpoint(dirpath=str(tmp_path), save_best=False, save_last=True)
+    Trainer(max_epochs=2, verbose=0, callbacks=[saving]).fit(_model(), _dm())
+
+    seen = {}
+
+    class Probe(BaseCallback):
+        def on_fit_start(self, state):
+            seen["weights"] = _snapshot_weights(state.model)
+            seen["optimizer_state"] = state.optimizer_state
+
+    _require("torch")
+    resuming = ModelCheckpoint(save_best=False, resume_from=f"{tmp_path}/last.npz")
+    with pytest.warns(UserWarning, match="other backend"):
+        history = Trainer(max_epochs=3, verbose=0, callbacks=[resuming, Probe()]).fit(
+            _model(), _dm()
+        )
+
+    assert _weights_equal(seen["weights"], _load(f"{tmp_path}/last.npz"))
+    assert seen["optimizer_state"] is None
+    assert len(history.train_loss) == 3
+
+
+def test_a_saved_datamodule_preprocesses_new_rows_like_the_fitted_one(tmp_path):
+    pyqit.set_backend("pennylane")
+    model = _model()
+    dm = _dm(normalize="minmax")
+    trainer = Trainer(max_epochs=1, verbose=0)
+    trainer.fit(model, dm)
+    X_new = np.random.default_rng(0).uniform(-3, 3, size=(5, 3))
+
+    dm.save(f"{tmp_path}/datamodule.pkl")
+    loaded = DataModule.load(f"{tmp_path}/datamodule.pkl", X_new)
+
+    expected = trainer.predict(model, dm.for_prediction(X_new))
+    np.testing.assert_allclose(trainer.predict(model, loaded), expected)
+    assert loaded.encoder is type(model.embedding_obj)
+    assert loaded.n_qubits == 3
 
 
 def test_train_accuracy_costs_no_extra_circuit_pass(monkeypatch):
@@ -465,3 +537,43 @@ def test_same_seed_gives_the_same_starting_weights_on_every_simulator(backend, d
         np.testing.assert_array_equal(
             _to_numpy(candidate.weights[key]), _to_numpy(value)
         )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bp_check_holds_a_regressors_scale_head_at_its_current_value(backend):
+    """A randomised affine head would scale every circuit gradient by a random draw."""
+    from pyqit.models import VQCRegressor
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    results = {}
+    for output_scale in (False, True):
+        pyqit.set_seed(42)
+        model = VQCRegressor(n_qubits=3, n_layers=1, output_scale=output_scale)
+        dm = _dm().setup(n_qubits=3, encoder=type(model.embedding_obj))
+        pyqit.set_seed(0)
+        results[output_scale] = check_barren_plateau(
+            model, dm, num_samples=8, plot=False
+        )
+
+    assert results[True].quantum_variance == pytest.approx(
+        results[False].quantum_variance, rel=1e-4
+    )
+    assert results[True].classical_variance is not None
+
+
+def test_bp_check_on_torch_agrees_with_pennylane():
+    """Torch sums into ``.grad``; a sample must not see the previous samples' sums."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    variance = {}
+    for backend in BACKENDS:
+        _require(backend)
+        model = _model()
+        dm = _dm().setup(n_qubits=3, encoder=type(model.embedding_obj))
+        pyqit.set_seed(0)
+        variance[backend] = check_barren_plateau(
+            model, dm, num_samples=100, plot=False
+        ).quantum_variance
+
+    assert 0.5 < variance["torch"] / variance["pennylane"] < 2.0

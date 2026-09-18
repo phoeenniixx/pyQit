@@ -11,6 +11,12 @@ def _is_torch(x) -> bool:
     return type(x).__module__.startswith("torch")
 
 
+def _qnode_of(node):
+    """The ``qml.QNode`` behind a registry entry, or None for a classical layer."""
+    qnode = node["node"] if isinstance(node, dict) else getattr(node, "qnode", None)
+    return qnode if isinstance(qnode, qml.QNode) else None
+
+
 def _to_numpy(x) -> np.ndarray:
     if _is_torch(x):
         return x.detach().cpu().numpy()

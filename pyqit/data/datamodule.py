@@ -1,6 +1,7 @@
 from collections.abc import Callable
 import copy
 from pathlib import Path
+import pickle
 from typing import Any, Optional
 
 import numpy as np
@@ -701,6 +702,69 @@ class DataModule:
         new_dm.y_raw = np.zeros(len(new_dm.X_raw))
         new_dm.split = (0.0, 0.0, 1.0)
         return new_dm
+
+    def save(self, path: str) -> str:
+        """Pickle the settings and fitted preprocessing, without the data.
+
+        Writes what `for_prediction` carries over: every constructor setting,
+        `transform` included, the fitted normalizer, `encoder` and `n_qubits`.
+        The raw arrays and splits are dropped, so the file is small and `load`
+        needs new rows. Loading a pickle runs code from the file, so load only
+        files you wrote, the same rule as ``torch.load``.
+
+        Parameters
+        ----------
+        path : str
+            File to write. Parent directories are created.
+
+        Returns
+        -------
+        str
+            ``path``.
+        """
+        if not self._is_setup:
+            raise RuntimeError(
+                "Set the DataModule up before saving it: the normalizer is fitted "
+                "in setup, and Trainer.fit does that for you."
+            )
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(self.clone_empty(), f)
+        return path
+
+    @classmethod
+    def load(cls, path: str, X, y=None) -> "DataModule":
+        """A DataModule over ``X`` with the settings and preprocessing in ``path``.
+
+        Parameters
+        ----------
+        path : str
+            A file written by `save`.
+        X : array-like
+            Raw rows, the same kind of input the saved DataModule was built from.
+        y : array-like, optional
+            Targets. Without them the result is predict-only over ``X``, as
+            `for_prediction` returns, and `Trainer.predict` applies the saved
+            normalizer statistics rather than refitting. With them the saved
+            split is kept and ``setup`` refits the normalizer on the new rows.
+
+        Returns
+        -------
+        DataModule
+            Not yet set up.
+        """
+        with open(path, "rb") as f:
+            dm = pickle.load(f)  # noqa: S301
+        dm._backend = get_backend()
+        dm.X_raw = np.asarray(X, dtype=np.float64)
+        if dm.X_raw.ndim == 1:
+            dm.X_raw = dm.X_raw.reshape(-1, 1)
+        if y is None:
+            dm.y_raw = np.zeros(len(dm.X_raw))
+            dm.split = (0.0, 0.0, 1.0)
+        else:
+            dm.y_raw = np.asarray(y, dtype=np.float64)
+        return dm
 
     def _map_features(self, fn) -> "DataModule":
         new_dm = self.clone_empty()

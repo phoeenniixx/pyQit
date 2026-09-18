@@ -48,14 +48,18 @@ class _LightningModelAdapter(LightningModule):
     loss_fn : callable
         Takes ``(preds, y)``. Its ``target_dtype`` tag decides whether targets
         are cast to class indices.
+    optimizer_state : dict, optional
+        A ``torch.optim`` ``state_dict`` loaded into the optimizer when
+        Lightning asks for it, so a resumed run keeps its moment estimates.
     """
 
-    def __init__(self, pyqit_model, lr, optimizer_name, loss_fn):
+    def __init__(self, pyqit_model, lr, optimizer_name, loss_fn, optimizer_state=None):
         super().__init__()
         self.pyqit_model = pyqit_model
         self.lr = lr
         self.optimizer_name = optimizer_name
         self.loss_fn = loss_fn
+        self.optimizer_state = optimizer_state
         get_tag = getattr(loss_fn, "get_tag", None)
         self.target_dtype = (
             get_tag("target_dtype", "float")
@@ -141,8 +145,12 @@ class _LightningModelAdapter(LightningModule):
         name = name.lower() if isinstance(name, str) else name
 
         if name == "sgd":
-            return torch.optim.SGD(parameters, lr=self.lr)
-        return torch.optim.Adam(parameters, lr=self.lr)
+            optimizer = torch.optim.SGD(parameters, lr=self.lr)
+        else:
+            optimizer = torch.optim.Adam(parameters, lr=self.lr)
+        if self.optimizer_state is not None:
+            optimizer.load_state_dict(self.optimizer_state)
+        return optimizer
 
 
 class _LightningDataAdapter(LightningDataModule):
@@ -215,30 +223,32 @@ class _PyQitCallbackShim(Callback):
     Reads Lightning's ``callback_metrics`` into the metric names the pennylane
     loop produces, fires the pyqit hooks, and forwards a callback's stop request
     onto ``trainer.should_stop``. This is what lets one pyqit callback work on
-    both backends.
+    both backends. ``on_fit_start`` is not bridged: the loop fires it before
+    building the Lightning trainer, since what it loads decides ``max_epochs``.
 
     Parameters
     ----------
     callbacks : list of BaseCallback
         The pyqit callbacks to drive.
     state : LoopState
-        Shared state; the shim fills ``epoch`` and ``metrics`` each epoch.
+        Shared state; the shim fills ``epoch``, ``metrics`` and ``optimizer``
+        each epoch.
+    start_epoch : int, default 0
+        Epochs already in the history when a run is resumed. Lightning counts
+        from zero again, so ``state.epoch`` is offset by this.
     """
 
     METRIC_KEYS = ("train_loss", "val_loss", "train_acc", "val_acc")
 
-    def __init__(self, callbacks, state):
+    def __init__(self, callbacks, state, start_epoch=0):
         self.callbacks = list(callbacks)
         self.state = state
+        self.start_epoch = start_epoch
         self._epoch_start = 0.0
 
     def _fire(self, hook):
         for callback in self.callbacks:
             getattr(callback, hook)(self.state)
-
-    def on_fit_start(self, trainer, pl_module):
-        """Fire ``on_fit_start`` on every pyqit callback."""
-        self._fire("on_fit_start")
 
     def on_train_epoch_start(self, trainer, pl_module):
         """Start this epoch's timer."""
@@ -251,7 +261,8 @@ class _PyQitCallbackShim(Callback):
         import time
 
         metrics = trainer.callback_metrics
-        self.state.epoch = trainer.current_epoch
+        self.state.epoch = self.start_epoch + trainer.current_epoch
+        self.state.optimizer = trainer.optimizers[0]
         self.state.metrics = {
             key: float(metrics.get(key, float("nan"))) for key in self.METRIC_KEYS
         }

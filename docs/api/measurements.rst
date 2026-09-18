@@ -20,7 +20,8 @@ use. Pass one as ``measure_fn``, and name the wires with ``measure_wires``:
    )
 
 A model picks a default when you leave ``measure_fn`` unset, and its page says
-which.
+which. The classifiers read probabilities; ``VQCRegressor`` reads the parity
+``Z ⊗ ... ⊗ Z``, one scalar per sample.
 
 Available measurements
 ======================
@@ -32,6 +33,7 @@ Available measurements
    measure_probs
    measure_expval_z
    measure_expval_x
+   measure_parity_z
 
 Writing your own
 ================

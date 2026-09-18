@@ -30,5 +30,5 @@ def measure_expval_x(wires):
 
 
 def measure_parity_z(wires):
-    """Returns the expectation of the Pauli-Z parity ``Z ⊗ ... ⊗ Z`` over `wires`."""
+    """Return the expectation of the PauliZ parity ``Z ⊗ ... ⊗ Z`` over `wires`."""
     return qml.expval(qml.prod(*(qml.PauliZ(w) for w in wires)))
