@@ -7,6 +7,8 @@ authors = [
   {name = "Aryan Saini"},
 ]
 requires-python = ">=3.10,<3.15"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 classifiers = [
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
@@ -22,7 +24,6 @@ classifiers = [
   "Topic :: Software Development",
   "Topic :: Software Development :: Libraries",
   "Topic :: Software Development :: Libraries :: Python Modules",
-    # Lincense yet to decide
 ]
 description = "A high-level orchestration and pipeline framework for quantum machine learning"
 

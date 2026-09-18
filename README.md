@@ -24,19 +24,16 @@ reference and the design notes. This page is the short version.
 
 ## Installation
 
-Not on PyPI yet. Install from source:
-
 ```bash
-git clone https://github.com/phoeenniixx/pyqit.git
-cd pyqit
-
-pip install -e "."                # pennylane and numpy
-pip install -e ".[pytorch]"       # adds torch and pytorch lightning
-pip install -e ".[all_extras]"    # adds matplotlib and rich as well
-pip install -e ".[qiskit]"        # adds the PennyLane-Qiskit plugin
+pip install pyqit                 # pennylane and numpy
+pip install "pyqit[pytorch]"      # adds torch and pytorch lightning
+pip install "pyqit[all_extras]"   # adds matplotlib and rich as well
+pip install "pyqit[qiskit]"       # adds the PennyLane-Qiskit plugin
 ```
 
-Quote the extras. `zsh` treats bare brackets as a glob.
+`all_extras` covers torch, lightning, matplotlib and rich. The Qiskit plugin is not part
+of it, because it needs Python 3.11 or newer. Install it through the `qiskit` extra on
+its own.
 
 ## Quickstart
 
@@ -65,7 +62,7 @@ model = VQCClassifier(
 trainer = pyqit.Trainer(max_epochs=30, learning_rate=0.05)
 history = trainer.fit(model, dm)
 
-print(history.best_epoch, history.best_score)   # 10 0.0936
+print(history.best_epoch, history.best_score)   # 22 0.0947
 preds = trainer.predict(model, dm)              # runs on the test split
 ```
 
