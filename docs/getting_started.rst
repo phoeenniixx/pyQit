@@ -12,6 +12,9 @@ Installation
    pip install "pyqit[all_extras]"   # adds matplotlib and rich as well
    pip install "pyqit[qiskit]"       # adds the PennyLane-Qiskit plugin
 
+With uv, ``uv add pyqit`` or ``uv pip install "pyqit[pytorch]"`` takes the same
+extras. There is no conda package. Inside a conda environment, use pip.
+
 ``all_extras`` covers torch, lightning, matplotlib and rich. The Qiskit plugin
 is not part of it, because it needs Python 3.11 or newer. Install it through
 the ``qiskit`` extra on its own.
