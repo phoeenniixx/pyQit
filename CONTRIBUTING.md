@@ -1,8 +1,6 @@
 # Contributing
 
-PyQit is `0.1.0b1`, unstable, and mostly one maintainer plus dependabot. Issues and PRs
-are welcome, and this doubles as a note-to-self for keeping things consistent.
-
+PyQit is `0.1.0`. Issues and PRs are welcome
 ## Setup
 
 ```bash
