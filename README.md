@@ -2,7 +2,7 @@
   <img src="docs/_static/pyqit-banner.png" alt="PyQit" width="320">
 </p>
 
-[![PyPI](https://img.shields.io/pypi/v/pyqit.svg)](https://pypi.org/project/pyqit/)
+[![PyPI](https://img.shields.io/pypi/v/pyqit)](https://pypi.org/project/pyqit/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 ![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)
 [![Docs](https://app.readthedocs.org/projects/pyqit/badge/?version=stable)](https://pyqit.readthedocs.io/en/stable/)
