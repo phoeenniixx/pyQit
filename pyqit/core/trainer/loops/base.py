@@ -53,6 +53,19 @@ class BaseTrainingLoop(_PyQitObject):
 
         self._validate_config()
 
+    def _learning_rates(self, model) -> dict:
+        """Learning rate per weight group, from a float or a per-group mapping."""
+        groups = model.weight_groups()
+        lr = self.trainer.learning_rate
+        if not isinstance(lr, dict):
+            return dict.fromkeys(groups, lr)
+        if set(lr) != set(groups):
+            raise ValueError(
+                f"learning_rate names the groups {sorted(lr)}, but the model's "
+                f"weight groups are {sorted(groups)}; name each of those once."
+            )
+        return {g: lr[g] for g in groups}
+
     def _is_set(self, param: str, defaults: dict) -> bool:
         """Whether the user moved ``param`` off its constructor default."""
         if not hasattr(self.trainer, param):

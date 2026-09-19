@@ -69,7 +69,7 @@ class LightningLoop(BaseTrainingLoop):
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(
             model,
-            trainer.learning_rate,
+            self._learning_rates(model),
             trainer.optimizer,
             loss_func,
             optimizer_state=state.optimizer_state,
@@ -109,7 +109,7 @@ class LightningLoop(BaseTrainingLoop):
         trainer = self.trainer
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(
-            model, trainer.learning_rate, trainer.optimizer, loss_func
+            model, self._learning_rates(model), trainer.optimizer, loss_func
         )
 
         with lightning_log_level(logging.WARNING):

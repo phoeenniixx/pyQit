@@ -36,7 +36,11 @@ class Trainer(_PyQitObject):
     Parameters
     ----------
     max_epochs : int, default 30
-    learning_rate : float, default 0.01
+    learning_rate : float or dict, default 0.01
+        One rate for every weight, or one per weight group as
+        ``{"quantum": ..., "classical": ...}``, naming exactly the groups
+        ``model.weight_groups()`` has. A pure circuit model has ``"quantum"``
+        only; a hybrid has both.
     batch_size : int, default 32
         Applied to the DataModule at ``setup``, overriding its own setting.
     optimizer : {"adam", "sgd"}, default "adam"
@@ -76,7 +80,7 @@ class Trainer(_PyQitObject):
     def __init__(
         self,
         max_epochs: int = 30,
-        learning_rate: float = 0.01,
+        learning_rate: float | dict = 0.01,
         batch_size: int = 32,
         optimizer: str = "adam",
         loss_fn: str | Callable = "mse",

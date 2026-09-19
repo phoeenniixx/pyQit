@@ -25,6 +25,16 @@ training loop chosen by the active backend.
 ``val_loss``, ``train_acc``, ``val_acc`` and ``epoch_times``, one entry per
 epoch.
 
+``learning_rate`` is one float for every weight, or one per weight group. A
+model sorts its weights into ``"quantum"`` (the QNodes') and ``"classical"``
+(dense layers'), listed by ``model.weight_groups()``, and each group gets its
+own optimizer, so a hybrid can move its circuit angles slower than its dense
+layers. A mapping must name exactly the groups the model has.
+
+.. code-block:: python
+
+   trainer = pyqit.Trainer(learning_rate={"quantum": 0.01, "classical": 0.1})
+
 Seeding happens too late for weights
 ====================================
 
