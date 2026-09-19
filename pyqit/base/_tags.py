@@ -66,13 +66,15 @@ class object_type(_BaseTag):
     - String name: ``"object_type"``
     - Public metadata tag
     - Values: ``"model"``, ``"layer"``, ``"ansatz"``, ``"embedding"``,
-      ``"loss"``, ``"callback"``, ``"trainer"``, ``"training_loop"``
+      ``"loss"``, ``"callback"``, ``"trainer"``, ``"training_loop"``,
+      ``"pipeline"``, ``"datamodule"``
     - Example: ``"model"``
     - Default: none, every base class sets it
 
     ``all_objects(object_types=...)`` filters on it, and each
-    ``test_all_*.py`` suite enrolls every class with one value. A
-    ``QuantumPipeline`` carries none, since it is composed rather than listed.
+    ``test_all_*.py`` suite enrolls every class with one value.
+    ``object_overview()`` lists every class with one, ``DataModule`` and
+    ``QuantumPipeline`` included though skbase does not discover them.
     """
 
     _tags = {
@@ -467,7 +469,7 @@ class mode(_BaseTag):
     """How a pipeline composes its stages.
 
     - String name: ``"mode"``
-    - Public metadata tag
+    - Instance tag, set at construction; not in the object overview
     - Values: ``"sequential"``, ``"ensemble"``
     - Default: ``"sequential"``
 
@@ -479,7 +481,7 @@ class mode(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "str",
         "short_descr": "sequential or ensemble",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
@@ -487,7 +489,7 @@ class n_stages(_BaseTag):
     """Number of stages in a pipeline.
 
     - String name: ``"n_stages"``
-    - Public metadata tag
+    - Instance tag, set at construction; not in the object overview
     - Values: int
     - Default: ``0`` before construction fills it
     """
@@ -497,7 +499,7 @@ class n_stages(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "int",
         "short_descr": "number of stages in the pipeline",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
@@ -505,7 +507,7 @@ class has_quantum(_BaseTag):
     """Whether any stage of a pipeline is quantum.
 
     - String name: ``"has_quantum"``
-    - Public metadata tag
+    - Instance tag, set at construction; not in the object overview
     - Values: bool
     - Default: ``False`` before construction fills it
 
@@ -517,8 +519,66 @@ class has_quantum(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "bool",
         "short_descr": "whether any pipeline stage is quantum",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
 OBJECT_TAGS = {cls.get_class_tag("tag_name"): cls for cls in _BaseTag.__subclasses__()}
+
+
+_PUBLIC_MODULES = (
+    "pyqit.models.layers",
+    "pyqit.core.callbacks",
+    "pyqit.core.embeddings",
+    "pyqit.ansatzes",
+    "pyqit.models",
+    "pyqit.core",
+    "pyqit",
+)
+
+
+def _public_path(cls):
+    """``module.Name`` under the shortest public module that exports ``cls``."""
+    import importlib
+
+    for module in _PUBLIC_MODULES:
+        if getattr(importlib.import_module(module), cls.__name__, None) is cls:
+            return f"{module}.{cls.__name__}"
+    return f"{cls.__module__}.{cls.__name__}"
+
+
+def object_overview():
+    """Every public object with its user-facing tags, for finding one by what it is.
+
+    Returns
+    -------
+    list of dict
+        One per class, sorted by ``object_type`` then name, with ``name``,
+        ``path`` (the import path its documentation page uses),
+        ``object_type`` and ``tags``: the user-facing tags of
+        ``OBJECT_TAGS`` the class sets to a value other than ``None``.
+    """
+    from pyqit.base.base_object import all_objects
+    from pyqit.core.pipeline import QuantumPipeline
+    from pyqit.data.datamodule import DataModule
+
+    classes = [cls for _, cls in all_objects()] + [QuantumPipeline, DataModule]
+    user_facing = [
+        name
+        for name, tag in OBJECT_TAGS.items()
+        if tag.get_class_tag("user_facing") and name != "object_type"
+    ]
+    rows = []
+    for cls in classes:
+        tags = cls.get_class_tags() if hasattr(cls, "get_class_tags") else cls._tags
+        if tags.get("object_type") is None:
+            continue
+        rows.append(
+            {
+                "name": cls.__name__,
+                "path": _public_path(cls),
+                "object_type": tags["object_type"],
+                "tags": {k: tags[k] for k in user_facing if tags.get(k) is not None},
+            }
+        )
+    return sorted(rows, key=lambda r: (r["object_type"], r["name"]))

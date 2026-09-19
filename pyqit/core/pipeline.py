@@ -118,6 +118,8 @@ class QuantumPipeline(BaseMetaObject):
     """
 
     _tags = {
+        "object_type": "pipeline",
+        "authors": "phoeenniixx",
         "mode": "sequential",
         "n_stages": 0,
         "has_quantum": False,
