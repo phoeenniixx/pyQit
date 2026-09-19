@@ -69,15 +69,15 @@ What is added:
 
 ### Maintenance
 
-- [Dependabot](deps): Update scikit-base requirement from <1.1.0 to <1.2.0 ([#18](https://github.com/phoeenniixx/pyQit/pull/18)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps): Bump actions/setup-python from 6 to 7 ([#16](https://github.com/phoeenniixx/pyQit/pull/16)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps): Bump actions/checkout from 6 to 7 ([#15](https://github.com/phoeenniixx/pyQit/pull/15)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps): Update scikit-base requirement from <0.14.0 to <1.1.0 ([#12](https://github.com/phoeenniixx/pyQit/pull/12)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps-dev): Update setuptools requirement from >=70.0.0 to >=82.0.1 ([#11](https://github.com/phoeenniixx/pyQit/pull/11)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps-dev): Update torch requirement from !=2.0.1,<3.0.0,>=2.0.0 to !=2.0.1,>=2.11.0,<3.0.0 ([#10](https://github.com/phoeenniixx/pyQit/pull/10)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps): Update scikit-learn requirement from <2.0,>=1.2 to >=1.7.2,<2.0 ([#9](https://github.com/phoeenniixx/pyQit/pull/9)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps): Update pandas requirement from <3.1.0,>=1.3.0 to >=2.3.3,<3.1.0 ([#8](https://github.com/phoeenniixx/pyQit/pull/8)) by [@app/dependabot](https://github.com/app/dependabot)
-- [Dependabot](deps-dev): Update ipywidgets requirement from <9.0.0,>=8.0.1 to >=8.1.8,<9.0.0 ([#7](https://github.com/phoeenniixx/pyQit/pull/7)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Update scikit-base requirement from <1.1.0 to <1.2.0 ([#18](https://github.com/phoeenniixx/pyQit/pull/18)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Bump actions/setup-python from 6 to 7 ([#16](https://github.com/phoeenniixx/pyQit/pull/16)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Bump actions/checkout from 6 to 7 ([#15](https://github.com/phoeenniixx/pyQit/pull/15)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Update scikit-base requirement from <0.14.0 to <1.1.0 ([#12](https://github.com/phoeenniixx/pyQit/pull/12)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps-dev): Update setuptools requirement from >=70.0.0 to >=82.0.1 ([#11](https://github.com/phoeenniixx/pyQit/pull/11)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps-dev): Update torch requirement from !=2.0.1,<3.0.0,>=2.0.0 to !=2.0.1,>=2.11.0,<3.0.0 ([#10](https://github.com/phoeenniixx/pyQit/pull/10)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Update scikit-learn requirement from <2.0,>=1.2 to >=1.7.2,<2.0 ([#9](https://github.com/phoeenniixx/pyQit/pull/9)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps): Update pandas requirement from <3.1.0,>=1.3.0 to >=2.3.3,<3.1.0 ([#8](https://github.com/phoeenniixx/pyQit/pull/8)) by [@app/dependabot](https://github.com/app/dependabot)
+- \[Dependabot\](deps-dev): Update ipywidgets requirement from <9.0.0,>=8.0.1 to >=8.1.8,<9.0.0 ([#7](https://github.com/phoeenniixx/pyQit/pull/7)) by [@app/dependabot](https://github.com/app/dependabot)
 
 ### Needs a label
 

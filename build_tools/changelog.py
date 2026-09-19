@@ -165,8 +165,9 @@ def render(prs: list[dict], heading: str) -> str:
         lines.append("")
         for pr in entries:
             login = pr["author"].get("login", "unknown")
+            title = re.sub(r"([\[\]])", r"\\\1", pr["title"])
             lines.append(
-                f"- {pr['title']} ([#{pr['number']}]({pr['url']})) "
+                f"- {title} ([#{pr['number']}]({pr['url']})) "
                 f"by [@{login}](https://github.com/{login})"
             )
         lines.append("")
