@@ -72,7 +72,6 @@ class object_type(_BaseTag):
     - Default: none, every base class sets it
 
     ``all_objects(object_types=...)`` filters on it, and each
-    ``test_all_*.py`` suite enrolls every class with one value.
     ``object_overview()`` lists every class with one, ``DataModule`` and
     ``QuantumPipeline`` included though skbase does not discover them.
     """
@@ -244,7 +243,6 @@ class differentiable(_BaseTag):
     - Example: ``False`` on ``AmplitudeEmbedding`` and ``IQPEmbedding``
     - Default: ``True`` on models, ``None`` on the ansatz and embedding bases
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -264,8 +262,6 @@ class n_qubits(_BaseTag):
     - Values: None
     - Default: ``None``
 
-    Nothing reads it. Models expose ``n_qubits`` as an attribute, which the
-    DataModule, reporter and diagnostic read instead.
     """
 
     _tags = {
@@ -284,8 +280,6 @@ class requires_fit(_BaseTag):
     - Public metadata tag
     - Values: bool
     - Default: ``True`` on ``BaseModel``
-
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -305,7 +299,6 @@ class embedding_type(_BaseTag):
     - Values: ``"angle"``, ``"amplitude"``, ``"iqp"``, ``"zz"``
     - Default: ``None`` on ``BaseEmbedding``
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -327,8 +320,6 @@ class prescale(_BaseTag):
     - Example: ``"amplitude"`` pads to ``2**n_qubits`` and L2-normalizes
     - Default: ``None`` on ``BaseEmbedding``
 
-    ``BaseEmbedding.__init_subclass__`` copies it to the ``PRESCALE`` class
-    attribute, which ``DataModule.setup`` maps through ``_PRESCALE_FNS``.
     """
 
     _tags = {
@@ -349,7 +340,6 @@ class n_qubits_min(_BaseTag):
     - Example: ``2`` on ``IQPEmbedding`` and ``SimplifiedTwoDesignAnsatz``
     - Default: ``1``
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -369,7 +359,6 @@ class ansatz_type(_BaseTag):
     - Values: str or None
     - Default: ``None`` on ``BaseAnsatz``
 
-    Reserved; no ansatz sets it and nothing reads it yet.
     """
 
     _tags = {
@@ -389,8 +378,6 @@ class name(_BaseTag):
     - Values: str
     - Example: ``"cross_entropy"`` for ``Trainer(loss_fn="cross_entropy")``
     - Default: ``None`` on ``BaseLoss``, which keeps it out of the registry
-
-    ``loss_registry()`` keys every ``BaseLoss`` subclass on it.
     """
 
     _tags = {
