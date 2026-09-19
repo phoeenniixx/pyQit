@@ -72,8 +72,9 @@ class object_type(_BaseTag):
     - Default: none, every base class sets it
 
     ``all_objects(object_types=...)`` filters on it, and each
-    ``object_overview()`` lists every class with one, ``DataModule`` and
-    ``QuantumPipeline`` included though skbase does not discover them.
+    ``object_overview()`` lists every publicly exported class with one,
+    ``DataModule`` and ``QuantumPipeline`` included though skbase does not
+    discover them.
     """
 
     _tags = {
@@ -525,13 +526,13 @@ _PUBLIC_MODULES = (
 
 
 def _public_path(cls):
-    """``module.Name`` under the shortest public module that exports ``cls``."""
+    """``module.Name`` under the public module that exports ``cls``, or None."""
     import importlib
 
     for module in _PUBLIC_MODULES:
         if getattr(importlib.import_module(module), cls.__name__, None) is cls:
             return f"{module}.{cls.__name__}"
-    return f"{cls.__module__}.{cls.__name__}"
+    return None
 
 
 def object_overview():
@@ -540,7 +541,8 @@ def object_overview():
     Returns
     -------
     list of dict
-        One per class, sorted by ``object_type`` then name, with ``name``,
+        One per class a public module exports (so the training loops are
+        absent), sorted by ``object_type`` then name, with ``name``,
         ``path`` (the import path its documentation page uses),
         ``object_type`` and ``tags``: the user-facing tags of
         ``OBJECT_TAGS`` the class sets to a value other than ``None``.
@@ -558,12 +560,13 @@ def object_overview():
     rows = []
     for cls in classes:
         tags = cls.get_class_tags() if hasattr(cls, "get_class_tags") else cls._tags
-        if tags.get("object_type") is None:
+        path = _public_path(cls)
+        if tags.get("object_type") is None or path is None:
             continue
         rows.append(
             {
                 "name": cls.__name__,
-                "path": _public_path(cls),
+                "path": path,
                 "object_type": tags["object_type"],
                 "tags": {k: tags[k] for k in user_facing if tags.get(k) is not None},
             }
