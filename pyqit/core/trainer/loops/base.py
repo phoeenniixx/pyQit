@@ -38,7 +38,6 @@ class BaseTrainingLoop(_PyQitObject):
     """
 
     _tags = {
-        "object_type": "training_loop",
         "backend": None,
     }
 
