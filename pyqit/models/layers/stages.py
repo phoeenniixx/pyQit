@@ -29,7 +29,7 @@ class DenseLayer(BaseModel):
     >>> layer = DenseLayer(n_features=8, n_out=4, activation="tanh")
     """
 
-    _tags = {"object_type": "layer", "is_quantum": False}
+    _tags = {"object_type": "layer", "is_quantum": False, "model_type": "classical"}
 
     def __init__(self, n_features, n_out, activation=None):
         if activation not in ACTIVATIONS:
@@ -75,7 +75,7 @@ class DenseClassifier(BaseModel, ClassifierMixin):
     >>> head = DenseClassifier(n_features=4, n_classes=3)
     """
 
-    _tags = {"object_type": "layer", "is_quantum": False}
+    _tags = {"object_type": "layer", "is_quantum": False, "model_type": "classical"}
 
     def __init__(self, n_features, n_classes=2):
         super().__init__()

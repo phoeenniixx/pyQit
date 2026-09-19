@@ -43,6 +43,16 @@ and a runnable example.
    DataReuploadingClassifier
    DressedQuantumClassifier
 
+Two tags say what a model is. ``model_type`` is ``"quantum"``, ``"hybrid"``
+or ``"classical"``; ``estimator_type`` is ``"classifier"`` or ``"regressor"``.
+``Trainer`` prints both in its summary, and ``all_objects`` filters on them:
+
+.. code-block:: python
+
+   from pyqit.base import all_objects
+
+   all_objects("model", filter_tags={"model_type": "hybrid"})
+
 Classifiers and regressors
 ==========================
 

@@ -17,6 +17,7 @@ class BaseQuantumModel(BaseModel):
     _tags = {
         "object_type": "model",
         "is_quantum": True,
+        "model_type": "quantum",
     }
 
     def __init__(

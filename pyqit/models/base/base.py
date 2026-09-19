@@ -20,6 +20,7 @@ class BaseModel(_PyQitObject):
     _tags = {
         "object_type": "model",
         "is_quantum": True,
+        "model_type": "quantum",
         "n_qubits": None,
         "differentiable": True,
         "requires_fit": True,
