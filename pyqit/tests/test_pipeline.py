@@ -419,3 +419,26 @@ def test_fine_tuning_a_clone_leaves_the_original_untouched(backend):
 
     assert not any(_changed(w, s.model) for w, (_, s) in zip(fitted, pipe.steps))
     assert all(_changed(w, s.model) for w, (_, s) in zip(fitted, clone.steps))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_learning_rate_per_group_moves_only_the_group_it_names(backend):
+    """A hybrid's circuit and dense layers train at their own rates."""
+    _require(backend)
+    pyqit.set_seed(0)
+    X, y = _data(n_samples=16, n_features=3)
+    pipe = _hybrid()
+    before = _weights(pipe)
+    groups = pipe.weight_groups()
+    assert set(groups) == {"quantum", "classical"}
+
+    Trainer(
+        max_epochs=1,
+        learning_rate={"quantum": 0.0, "classical": 0.1},
+        verbose=0,
+        batch_size=16,
+    ).fit(pipe, DataModule(X, y, normalize="minmax", split=(0.8, 0.0, 0.2)))
+
+    after = _weights(pipe)
+    assert all(np.allclose(before[k], after[k]) for k in groups["quantum"])
+    assert all(not np.allclose(before[k], after[k]) for k in groups["classical"])

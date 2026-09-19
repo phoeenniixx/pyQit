@@ -111,12 +111,12 @@ def test_optimizer_name_is_case_insensitive(backend, name):
         from pyqit.core.losses import get_loss_fn
 
         adapter = _LightningModelAdapter(
-            _model(), 0.1, name, get_loss_fn("mse", backend="torch")
+            _model(), {"quantum": 0.1}, name, get_loss_fn("mse", backend="torch")
         )
         assert type(adapter.configure_optimizers()).__name__ == "SGD"
     else:
         trainer = Trainer(optimizer=name, learning_rate=0.1)
-        optimizer = PennyLaneLoop._make_optimizer(trainer)
+        optimizer = PennyLaneLoop._make_optimizer(trainer, 0.1)
         assert type(optimizer).__name__ == "GradientDescentOptimizer"
 
 
@@ -577,3 +577,27 @@ def test_bp_check_on_torch_agrees_with_pennylane():
         ).quantum_variance
 
     assert 0.5 < variance["torch"] / variance["pennylane"] < 2.0
+
+
+def test_learning_rate_naming_a_group_the_model_lacks_raises():
+    """A pure circuit has no classical group to give a rate to."""
+    _require("pennylane")
+    trainer = Trainer(learning_rate={"quantum": 0.1, "classical": 0.1}, verbose=0)
+    with pytest.raises(ValueError, match="weight groups are \\['quantum'\\]"):
+        trainer.fit(_model(), _dm())
+
+
+def test_parameter_shift_can_be_forced_to_rehearse_a_hardware_run():
+    """Naming diff_method is reported back and priced by the diagnostic."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require("pennylane")
+    dm = _dm(n_qubits=2)
+    model = VQCClassifier(n_qubits=2, n_layers=1, diff_method="parameter-shift")
+    dm.setup(encoder=model.embedding_obj, n_qubits=2)
+    n_params = sum(np.asarray(w).size for w in model.weights.values())
+
+    assert model.diff_methods(dm.X_raw[:1]) == {"main_circuit": "parameter-shift"}
+    result = check_barren_plateau(model, dm, num_samples=3, plot=False)
+    assert result.n_executions == 3 * (1 + 2 * n_params)
+    Trainer(max_epochs=1, verbose=0).fit(model, dm)

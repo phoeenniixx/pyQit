@@ -41,8 +41,9 @@ class _LightningModelAdapter(LightningModule):
     pyqit_model : torch.nn.Module or callable
         The model to wrap. Any ``torch.nn.Module`` in its ``_qnodes`` dict is
         registered as a submodule.
-    lr : float
-        Learning rate for the optimizer.
+    learning_rates : dict
+        Learning rate per weight group, keyed like ``model.weight_groups()``;
+        each group becomes a ``torch.optim`` parameter group.
     optimizer_name : str
         ``"sgd"`` selects SGD, case-insensitively; anything else selects Adam.
     loss_fn : callable
@@ -53,10 +54,12 @@ class _LightningModelAdapter(LightningModule):
         Lightning asks for it, so a resumed run keeps its moment estimates.
     """
 
-    def __init__(self, pyqit_model, lr, optimizer_name, loss_fn, optimizer_state=None):
+    def __init__(
+        self, pyqit_model, learning_rates, optimizer_name, loss_fn, optimizer_state=None
+    ):
         super().__init__()
         self.pyqit_model = pyqit_model
-        self.lr = lr
+        self.learning_rates = learning_rates
         self.optimizer_name = optimizer_name
         self.loss_fn = loss_fn
         self.optimizer_state = optimizer_state
@@ -136,18 +139,21 @@ class _LightningModelAdapter(LightningModule):
     def configure_optimizers(self):
         import torch
 
-        parameters = list(self.parameters())
-
-        if not parameters:
+        weights = self.pyqit_model.weights
+        param_groups = [
+            {"params": [weights[k] for k in keys], "lr": self.learning_rates[g]}
+            for g, keys in self.pyqit_model.weight_groups().items()
+        ]
+        if not param_groups:
             raise ValueError("No parameters found! TorchLayers were not registered.")
 
         name = self.optimizer_name
         name = name.lower() if isinstance(name, str) else name
 
         if name == "sgd":
-            optimizer = torch.optim.SGD(parameters, lr=self.lr)
+            optimizer = torch.optim.SGD(param_groups)
         else:
-            optimizer = torch.optim.Adam(parameters, lr=self.lr)
+            optimizer = torch.optim.Adam(param_groups)
         if self.optimizer_state is not None:
             optimizer.load_state_dict(self.optimizer_state)
         return optimizer

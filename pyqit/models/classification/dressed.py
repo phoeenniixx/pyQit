@@ -42,6 +42,9 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
         backends.
     device : str, default "default.qubit"
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
 
     References
     ----------
@@ -74,8 +77,9 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
         q_delta=0.01,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
-        super().__init__(device=device, shots=shots)
+        super().__init__(device=device, shots=shots, diff_method=diff_method)
         self.n_features = n_features
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -92,6 +96,7 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
             encoder=HadamardAngleEmbedding,
             device=device,
             shots=shots,
+            diff_method=diff_method,
         )
         _restore_weights(quantum, {"main_circuit.weights": q_init})
 

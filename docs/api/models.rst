@@ -129,12 +129,16 @@ any device with shots, or real hardware, parameter-shift. Parameter-shift runs
 ``1 + 2 * n_params`` circuits for every gradient, so a model that trains in
 seconds locally can take hours on a queue. ``diff_methods`` tells you which
 method you are getting, and ``Trainer(verbose=2)`` prints it in the model
-summary next to the device.
+summary next to the device. ``diff_method=`` names one instead; forcing
+``"parameter-shift"`` on a simulator rehearses a hardware run's gradient cost,
+and ``check_bp`` then counts the executions it takes.
 
 .. code-block:: python
 
    model = VQCClassifier(n_qubits=4, device="qiskit.aer", shots=1024)
    model.diff_methods(dm.X_train[:1])   # {"main_circuit": "parameter-shift"}
+
+   rehearsal = VQCClassifier(n_qubits=4, diff_method="parameter-shift")
 
 ``pip install pyqit[qiskit]`` adds the Qiskit plugin. Its local simulators
 sample even at ``shots=None``, where they run 1024 shots, so expect

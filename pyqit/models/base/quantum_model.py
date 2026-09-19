@@ -24,10 +24,12 @@ class BaseQuantumModel(BaseModel):
         self,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
         super().__init__()
         self.device = device
         self.shots = shots
+        self.diff_method = diff_method
 
     def get_interface(self):
         """PennyLane QNode interface for the active backend."""
@@ -103,11 +105,7 @@ class BaseQuantumModel(BaseModel):
         """Run the model on a batch and return its raw output."""
 
     def diff_methods(self, X) -> dict:
-        """Differentiation method PennyLane resolves ``"best"`` to, per QNode.
-
-        ``backprop`` and ``adjoint`` are simulator-only; a device with shots or
-        real hardware resolves to ``parameter-shift``, which costs two circuit
-        executions per parameter for every gradient.
+        """Differentiation method per QNode.
 
         Parameters
         ----------
@@ -133,5 +131,8 @@ class BaseQuantumModel(BaseModel):
                 for k, v in self.weights.items()
                 if k.startswith(prefix)
             }
-            methods[name] = get_best_diff_method(qnode)(X, **weights)
+            if qnode.diff_method != "best":
+                methods[name] = qnode.diff_method
+            else:
+                methods[name] = get_best_diff_method(qnode)(X, **weights)
         return methods

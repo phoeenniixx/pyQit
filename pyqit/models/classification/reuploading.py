@@ -34,6 +34,9 @@ class DataReuploadingClassifier(BaseQuantumModel, ClassifierMixin):
         Defaults to `[0]` for binary, all wires otherwise.
     device : str, default "default.qubit"
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
 
     References
     ----------
@@ -59,8 +62,9 @@ class DataReuploadingClassifier(BaseQuantumModel, ClassifierMixin):
         measure_wires=None,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
-        super().__init__(device=device, shots=shots)
+        super().__init__(device=device, shots=shots, diff_method=diff_method)
         self.n_features = n_features
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -78,7 +82,12 @@ class DataReuploadingClassifier(BaseQuantumModel, ClassifierMixin):
 
         dev = qml.device(self.device, wires=self.n_qubits)
         qnode = qml.set_shots(
-            qml.QNode(self._circuit, dev, interface=self.get_interface()),
+            qml.QNode(
+                self._circuit,
+                dev,
+                interface=self.get_interface(),
+                diff_method=self.diff_method,
+            ),
             shots=self.shots,
         )
         self.register_qnode("main_circuit", qnode, weight_shapes, weights=init_weights)

@@ -47,6 +47,9 @@ class BaseVQC(BaseQuantumModel):
         Handed to ``_resolve_readout``, which picks the default.
     device : str, default "default.qubit"
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
     """
 
     def __init__(
@@ -59,6 +62,7 @@ class BaseVQC(BaseQuantumModel):
         measure_wires=None,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
         if not inspect.isclass(ansatz):
             raise TypeError(
@@ -72,7 +76,7 @@ class BaseVQC(BaseQuantumModel):
                 f"got {type(encoder).__name__}"
             )
 
-        super().__init__(device=device, shots=shots)
+        super().__init__(device=device, shots=shots, diff_method=diff_method)
 
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -95,7 +99,12 @@ class BaseVQC(BaseQuantumModel):
 
         dev = qml.device(self.device, wires=self.n_qubits)
         primary_qnode = qml.set_shots(
-            qml.QNode(self._circuit, dev, interface=self.get_interface()),
+            qml.QNode(
+                self._circuit,
+                dev,
+                interface=self.get_interface(),
+                diff_method=self.diff_method,
+            ),
             shots=self.shots,
         )
 
