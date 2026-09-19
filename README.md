@@ -2,13 +2,15 @@
   <img src="docs/_static/pyqit-banner.png" alt="PyQit" width="320">
 </p>
 
+[![PyPI](https://img.shields.io/pypi/v/pyqit.svg)](https://pypi.org/project/pyqit/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 ![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)
-[![Docs](https://app.readthedocs.org/projects/pyqit/badge/?version=latest)](https://pyqit.readthedocs.io/en/latest/)
+[![Docs](https://app.readthedocs.org/projects/pyqit/badge/?version=stable)](https://pyqit.readthedocs.io/en/stable/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/phoeenniixx/pyQit/test.yml)](https://github.com/phoeenniixx/pyqit/actions)
 
-PyQit is a quantum machine learning framework built on PennyLane. It puts a Trainer, a
+PyQit is a quantum machine learning framework built on
+[PennyLane](https://docs.pennylane.ai/en/stable/). It puts a Trainer, a
 DataModule and model classes on top of PennyLane QNodes, so training a variational
 circuit is a `fit` call rather than an optimizer loop you write yourself.
 [PyTorch](https://pytorch.org/docs/stable/) and
@@ -17,9 +19,9 @@ them and the same code trains through PyTorch Lightning instead of autograd. Tha
 PyTorch project, not PennyLane's `lightning.qubit` simulator, which is a device and works
 on either backend.
 
-Version `0.1.0b1`. The API is unstable and still changing.
+Version `0.1.0`.
 
-The [documentation](https://pyqit.readthedocs.io/en/latest/) has the tutorials, the API
+The [documentation](https://pyqit.readthedocs.io/en/stable/) has the tutorials, the API
 reference and the design notes. This page is the short version.
 
 ## Installation
@@ -77,22 +79,22 @@ and pick the backend before you build it.
 
 Each item links to its page in the docs.
 
-- [Backends](https://pyqit.readthedocs.io/en/latest/api/trainer.html). `pyqit.set_backend("torch")` moves training to PyTorch Lightning. Same model, same callbacks, same history. PyTorch Lightning settings go through `Trainer(backend_kwargs=...)`.
-- [DataModule](https://pyqit.readthedocs.io/en/latest/api/datamodule.html). Nothing runs until the Trainer asks. It splits, fits normalization on the train split only, and prescales inputs for the model's embedding.
-- [Callbacks](https://pyqit.readthedocs.io/en/latest/api/callbacks.html). `EarlyStopping` and `ModelCheckpoint` work on both backends. Your own is a `BaseCallback` with up to three methods.
-- [Losses](https://pyqit.readthedocs.io/en/latest/api/losses.html). `mse`, `hinge`, `cross_entropy`, or any callable.
-- [Barren-plateau check](https://pyqit.readthedocs.io/en/latest/api/diagnostics.html). `Trainer(check_bp=True)` samples gradients at random weights before training and tells you whether their variance sits above the theoretical floor.
-- [Pipelines](https://pyqit.readthedocs.io/en/latest/api/pipeline.html). `QuantumPipeline` chains models or runs them as an ensemble.
-- [Devices](https://pyqit.readthedocs.io/en/latest/api/models.html#devices). `device=` takes any PennyLane device name, plugins included. The [PennyLane-Qiskit](https://docs.pennylane.ai/projects/qiskit/en/stable/) plugin is tested, and `Trainer(verbose=2)` prints which differentiation method a device gets.
+- [Backends](https://pyqit.readthedocs.io/en/stable/api/trainer.html). `pyqit.set_backend("torch")` moves training to PyTorch Lightning. Same model, same callbacks, same history. PyTorch Lightning settings go through `Trainer(backend_kwargs=...)`.
+- [DataModule](https://pyqit.readthedocs.io/en/stable/api/datamodule.html). Nothing runs until the Trainer asks. It splits, fits normalization on the train split only, and prescales inputs for the model's embedding.
+- [Callbacks](https://pyqit.readthedocs.io/en/stable/api/callbacks.html). `EarlyStopping` and `ModelCheckpoint` work on both backends. Your own is a `BaseCallback` with up to three methods.
+- [Losses](https://pyqit.readthedocs.io/en/stable/api/losses.html). `mse`, `hinge`, `cross_entropy`, or any callable.
+- [Barren-plateau check](https://pyqit.readthedocs.io/en/stable/api/diagnostics.html). `Trainer(check_bp=True)` samples gradients at random weights before training and tells you whether their variance sits above the theoretical floor.
+- [Pipelines](https://pyqit.readthedocs.io/en/stable/api/pipeline.html). `QuantumPipeline` chains models or runs them as an ensemble.
+- [Devices](https://pyqit.readthedocs.io/en/stable/api/models.html#devices). `device=` takes any PennyLane device name, plugins included. The [PennyLane-Qiskit](https://docs.pennylane.ai/projects/qiskit/en/stable/) plugin is tested, and `Trainer(verbose=2)` prints which differentiation method a device gets.
 
-Tutorials walk through a [VQC end to end](https://pyqit.readthedocs.io/en/latest/tutorials/vqc.html),
-[callbacks and checkpoints](https://pyqit.readthedocs.io/en/latest/tutorials/callbacks.html)
-and [barren plateaus](https://pyqit.readthedocs.io/en/latest/tutorials/barren_plateau.html).
+Tutorials walk through a [VQC end to end](https://pyqit.readthedocs.io/en/stable/tutorials/vqc.html),
+[callbacks and checkpoints](https://pyqit.readthedocs.io/en/stable/tutorials/callbacks.html)
+and [barren plateaus](https://pyqit.readthedocs.io/en/stable/tutorials/barren_plateau.html).
 
 ## Contributing
 
 Issues and pull requests are welcome. The
-[contributing guide](https://pyqit.readthedocs.io/en/latest/contributing.html) has the
+[contributing guide](https://pyqit.readthedocs.io/en/stable/contributing.html) has the
 conventions.
 
 ```bash
