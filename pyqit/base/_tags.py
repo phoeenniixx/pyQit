@@ -469,7 +469,7 @@ class mode(_BaseTag):
     """How a pipeline composes its stages.
 
     - String name: ``"mode"``
-    - Instance tag, set at construction; not in the object overview
+    - Public metadata tag
     - Values: ``"sequential"``, ``"ensemble"``
     - Default: ``"sequential"``
 
@@ -489,7 +489,7 @@ class n_stages(_BaseTag):
     """Number of stages in a pipeline.
 
     - String name: ``"n_stages"``
-    - Instance tag, set at construction; not in the object overview
+    - Public metadata tag
     - Values: int
     - Default: ``0`` before construction fills it
     """
@@ -507,7 +507,7 @@ class has_quantum(_BaseTag):
     """Whether any stage of a pipeline is quantum.
 
     - String name: ``"has_quantum"``
-    - Instance tag, set at construction; not in the object overview
+    - Public metadata tag
     - Values: bool
     - Default: ``False`` before construction fills it
 
