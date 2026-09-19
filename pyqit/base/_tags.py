@@ -66,13 +66,15 @@ class object_type(_BaseTag):
     - String name: ``"object_type"``
     - Public metadata tag
     - Values: ``"model"``, ``"layer"``, ``"ansatz"``, ``"embedding"``,
-      ``"loss"``, ``"callback"``, ``"trainer"``, ``"training_loop"``
+      ``"loss"``, ``"callback"``, ``"trainer"``, ``"training_loop"``,
+      ``"pipeline"``, ``"datamodule"``
     - Example: ``"model"``
     - Default: none, every base class sets it
 
     ``all_objects(object_types=...)`` filters on it, and each
-    ``test_all_*.py`` suite enrolls every class with one value. A
-    ``QuantumPipeline`` carries none, since it is composed rather than listed.
+    ``object_overview()`` lists every publicly exported class with one,
+    ``DataModule`` and ``QuantumPipeline`` included though skbase does not
+    discover them.
     """
 
     _tags = {
@@ -242,7 +244,6 @@ class differentiable(_BaseTag):
     - Example: ``False`` on ``AmplitudeEmbedding`` and ``IQPEmbedding``
     - Default: ``True`` on models, ``None`` on the ansatz and embedding bases
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -262,8 +263,6 @@ class n_qubits(_BaseTag):
     - Values: None
     - Default: ``None``
 
-    Nothing reads it. Models expose ``n_qubits`` as an attribute, which the
-    DataModule, reporter and diagnostic read instead.
     """
 
     _tags = {
@@ -282,8 +281,6 @@ class requires_fit(_BaseTag):
     - Public metadata tag
     - Values: bool
     - Default: ``True`` on ``BaseModel``
-
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -303,7 +300,6 @@ class embedding_type(_BaseTag):
     - Values: ``"angle"``, ``"amplitude"``, ``"iqp"``, ``"zz"``
     - Default: ``None`` on ``BaseEmbedding``
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -325,8 +321,6 @@ class prescale(_BaseTag):
     - Example: ``"amplitude"`` pads to ``2**n_qubits`` and L2-normalizes
     - Default: ``None`` on ``BaseEmbedding``
 
-    ``BaseEmbedding.__init_subclass__`` copies it to the ``PRESCALE`` class
-    attribute, which ``DataModule.setup`` maps through ``_PRESCALE_FNS``.
     """
 
     _tags = {
@@ -347,7 +341,6 @@ class n_qubits_min(_BaseTag):
     - Example: ``2`` on ``IQPEmbedding`` and ``SimplifiedTwoDesignAnsatz``
     - Default: ``1``
 
-    Informational; nothing in the framework reads it yet.
     """
 
     _tags = {
@@ -367,7 +360,6 @@ class ansatz_type(_BaseTag):
     - Values: str or None
     - Default: ``None`` on ``BaseAnsatz``
 
-    Reserved; no ansatz sets it and nothing reads it yet.
     """
 
     _tags = {
@@ -387,8 +379,6 @@ class name(_BaseTag):
     - Values: str
     - Example: ``"cross_entropy"`` for ``Trainer(loss_fn="cross_entropy")``
     - Default: ``None`` on ``BaseLoss``, which keeps it out of the registry
-
-    ``loss_registry()`` keys every ``BaseLoss`` subclass on it.
     """
 
     _tags = {
@@ -479,7 +469,7 @@ class mode(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "str",
         "short_descr": "sequential or ensemble",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
@@ -497,7 +487,7 @@ class n_stages(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "int",
         "short_descr": "number of stages in the pipeline",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
@@ -517,8 +507,68 @@ class has_quantum(_BaseTag):
         "parent_type": "pipeline",
         "tag_type": "bool",
         "short_descr": "whether any pipeline stage is quantum",
-        "user_facing": True,
+        "user_facing": False,
     }
 
 
 OBJECT_TAGS = {cls.get_class_tag("tag_name"): cls for cls in _BaseTag.__subclasses__()}
+
+
+_PUBLIC_MODULES = (
+    "pyqit.models.layers",
+    "pyqit.core.callbacks",
+    "pyqit.core.embeddings",
+    "pyqit.ansatzes",
+    "pyqit.models",
+    "pyqit.core",
+    "pyqit",
+)
+
+
+def _public_path(cls):
+    """``module.Name`` under the public module that exports ``cls``, or None."""
+    import importlib
+
+    for module in _PUBLIC_MODULES:
+        if getattr(importlib.import_module(module), cls.__name__, None) is cls:
+            return f"{module}.{cls.__name__}"
+    return None
+
+
+def object_overview():
+    """Every public object with its user-facing tags, for finding one by what it is.
+
+    Returns
+    -------
+    list of dict
+        One per class a public module exports (so the training loops are
+        absent), sorted by ``object_type`` then name, with ``name``,
+        ``path`` (the import path its documentation page uses),
+        ``object_type`` and ``tags``: the user-facing tags of
+        ``OBJECT_TAGS`` the class sets to a value other than ``None``.
+    """
+    from pyqit.base.base_object import all_objects
+    from pyqit.core.pipeline import QuantumPipeline
+    from pyqit.data.datamodule import DataModule
+
+    classes = [cls for _, cls in all_objects()] + [QuantumPipeline, DataModule]
+    user_facing = [
+        name
+        for name, tag in OBJECT_TAGS.items()
+        if tag.get_class_tag("user_facing") and name != "object_type"
+    ]
+    rows = []
+    for cls in classes:
+        tags = cls.get_class_tags() if hasattr(cls, "get_class_tags") else cls._tags
+        path = _public_path(cls)
+        if tags.get("object_type") is None or path is None:
+            continue
+        rows.append(
+            {
+                "name": cls.__name__,
+                "path": path,
+                "object_type": tags["object_type"],
+                "tags": {k: tags[k] for k in user_facing if tags.get(k) is not None},
+            }
+        )
+    return sorted(rows, key=lambda r: (r["object_type"], r["name"]))

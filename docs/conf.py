@@ -1,6 +1,10 @@
 """Sphinx configuration for the PyQit documentation."""
 
 from importlib.metadata import version as _get_version
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath("_ext"))
 
 project = "PyQit"
 author = "Aryan Saini"
@@ -15,6 +19,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "myst_parser",
     "nbsphinx",
+    "object_overview",
 ]
 
 templates_path = ["_templates"]

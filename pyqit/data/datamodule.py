@@ -217,6 +217,8 @@ class DataModule:
     >>> history = pyqit.Trainer(max_epochs=10).fit(model, dm)  # doctest: +SKIP
     """
 
+    _tags = {"object_type": "datamodule", "authors": "phoeenniixx"}
+
     _RECONFIGURABLE = (
         "normalize",
         "split",

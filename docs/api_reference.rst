@@ -2,7 +2,9 @@
 API Reference
 =============
 
-The API reference for every public class and function in PyQit.
+The API reference for every public class and function in PyQit. The
+:doc:`object overview <api/overview>` lists every class with its tags in one
+filterable table.
 
 .. toctree::
    :maxdepth: 1

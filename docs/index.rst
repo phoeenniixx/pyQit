@@ -156,9 +156,10 @@ suite finds it by walking the package. See :doc:`contributing`.
 Where to go next
 ================
 
-:doc:`tutorials/index` has three worked notebooks. Start with the
-:doc:`VQC tutorial <tutorials/vqc>`. The :doc:`api_reference` has one page per
-kind of object and one page per class.
+:doc:`tutorials/index` has four worked notebooks. Start with the
+:doc:`VQC tutorial <tutorials/vqc>`. The :doc:`object overview <api/overview>`
+lists every class with its tags in a filterable table, and the
+:doc:`api_reference` has one page per kind of object and one page per class.
 
 .. toctree::
    :hidden:
@@ -177,6 +178,7 @@ kind of object and one page per class.
    :caption: Reference
    :maxdepth: 2
 
+   api/overview
    api_reference
 
 .. toctree::
