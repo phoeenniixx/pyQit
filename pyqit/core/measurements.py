@@ -30,5 +30,9 @@ def measure_expval_x(wires):
 
 
 def measure_parity_z(wires):
-    """Returns the expectation of the Pauli-Z parity ``Z ⊗ ... ⊗ Z`` over `wires`."""
+    """Return the expectation of the PauliZ parity over `wires`.
+
+    The observable is the tensor product of ``PauliZ`` on every wire given.
+    Always a single value in ``[-1, 1]``, however many wires there are.
+    """
     return qml.expval(qml.prod(*(qml.PauliZ(w) for w in wires)))

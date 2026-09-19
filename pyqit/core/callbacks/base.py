@@ -30,6 +30,12 @@ class LoopState:
     stop : bool
         Set by a callback to end training after this epoch. Both loops check it;
         the Lightning loop forwards it to ``trainer.should_stop``.
+    optimizer : object
+        The live optimizer, once the loop has built it: a ``qml`` optimizer or
+        a ``torch.optim`` one. ``None`` during ``on_fit_start``.
+    optimizer_state : object
+        Set during ``on_fit_start`` by a callback restoring a run; the loop
+        loads it into the optimizer it builds. Backend-specific.
     """
 
     model: Any
@@ -40,6 +46,8 @@ class LoopState:
     epoch: int = -1
     metrics: dict[str, float] = field(default_factory=dict)
     stop: bool = False
+    optimizer: Any = None
+    optimizer_state: Any = None
 
 
 class BaseCallback(_PyQitObject):

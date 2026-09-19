@@ -55,6 +55,18 @@ count from the one you trained on.
 
    preds = trainer.predict(model, dm.for_prediction(X_new))
 
+To do the same later without the training data, save the fitted DataModule
+after ``fit``. The file is a pickle of everything but the data: the
+constructor settings, transforms, the fitted normalizer, the encoder and
+``n_qubits``. ``load`` rebuilds a DataModule over new rows from it,
+predict-only without targets and a training DataModule with the same settings
+when targets are given. As with any pickle, load only files you wrote.
+
+.. code-block:: python
+
+   dm.save("ckpts/datamodule.pkl")
+   preds = trainer.predict(model, DataModule.load("ckpts/datamodule.pkl", X_new))
+
 Handing ``Trainer.predict`` a fresh ``DataModule(X_new, ...)`` with
 ``normalize=`` set raises instead, because a normalizer that was never fit
 would either scale with the wrong statistics or not at all.

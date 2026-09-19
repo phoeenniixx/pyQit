@@ -1,11 +1,11 @@
 from abc import abstractmethod
 
-import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.base import _PyQitObject
 from pyqit.core.config import get_backend
+from pyqit.utils.utils import _qnode_of
 
 
 class BaseModel(_PyQitObject):
@@ -65,11 +65,7 @@ class BaseModel(_PyQitObject):
         else:
             self._qnodes[name] = {"node": dense, "weights": weights}
 
-    @staticmethod
-    def _qnode_of(node):
-        """The ``qml.QNode`` behind a registry entry, or None for a classical layer."""
-        qnode = node["node"] if isinstance(node, dict) else getattr(node, "qnode", None)
-        return qnode if isinstance(qnode, qml.QNode) else None
+    _qnode_of = staticmethod(_qnode_of)
 
     def execute_qnode(self, name: str, X, **custom_weights):
         """Run the QNode or dense layer registered under `name` on a batch.

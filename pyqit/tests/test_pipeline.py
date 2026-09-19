@@ -61,6 +61,78 @@ def _hybrid(n_features=3, **quantum_stage):
     )
 
 
+def _regression_data(n_samples=24, n_features=3):
+    rng = np.random.default_rng(0)
+    X = rng.uniform(-1, 1, size=(n_samples, n_features))
+    return X, np.sin(X[:, 0]) * 0.5
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_regressor_head_makes_the_pipeline_a_regressor(backend):
+    """No accuracy is scored and predictions are the head's raw output."""
+    from pyqit.models import VQCRegressor
+
+    _require(backend)
+    X, y = _regression_data()
+    dm = DataModule(X, y, split=(0.5, 0.25, 0.25), batch_size=8, seed=0)
+    pyqit.set_seed(0)
+    pipe = QuantumPipeline(
+        [("pre", DenseLayer(3, 2, activation="tanh")), VQCRegressor(n_qubits=2)],
+        fit_mode="joint",
+    )
+    trainer = _trainer(seed=0)
+
+    history = trainer.fit(pipe, dm)
+    preds = trainer.predict(pipe, dm)
+
+    assert np.isnan(history.train_acc[-1]) and np.isnan(history.val_acc[-1])
+    assert np.isnan(trainer.test(pipe, dm)["test_acc"])
+    raw = _to_numpy(pipe.forward(_as_input(dm.X_test, backend))).ravel()
+    np.testing.assert_allclose(_to_numpy(preds).ravel(), raw, atol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_an_ensemble_of_regressors_predicts_the_mean_of_their_outputs(backend):
+    from pyqit.models import VQCRegressor
+
+    _require(backend)
+    X, y = _regression_data()
+    pyqit.set_seed(0)
+    members = [VQCRegressor(n_qubits=3, n_layers=1) for _ in range(2)]
+    ensemble = QuantumPipeline(members, mode="ensemble")
+
+    def predict(model):
+        dm = DataModule(X, y, split=(0.0, 0.0, 1.0))
+        return np.ravel(Trainer(verbose=0).predict(model, dm, return_format="numpy"))
+
+    together = predict(ensemble)
+
+    np.testing.assert_allclose(
+        together, np.mean([predict(m) for m in members], 0), atol=1e-5
+    )
+    assert not set(np.unique(together)) <= {0.0, 1.0}
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bp_check_on_a_joint_hybrid_samples_its_quantum_stage(backend):
+    """The floor comes from the circuit stage; dense weights are held, not drawn."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    X, y = _data(n_features=3)
+    dm = DataModule(X, y, split=(0.5, 0.25, 0.25), batch_size=8, seed=0)
+    pyqit.set_seed(0)
+    hybrid = _hybrid()
+    _trainer(check_bp=True, bp_samples=2).fit(hybrid, dm)
+
+    result = check_barren_plateau(hybrid, dm, num_samples=4, plot=False)
+
+    assert result.n_qubits == 2
+    assert set(result.layer_variances) == set(hybrid.weights)
+    assert result.quantum_variance == result.layer_variances["q.main_circuit.weights"]
+    assert result.classical_variance is not None
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_joint_hybrid_learns_and_trains_the_stage_before_a_frozen_circuit(backend):
     """The loss sits after the last stage, so reaching `pre` means crossing `q`."""

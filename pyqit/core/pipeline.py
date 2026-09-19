@@ -10,6 +10,7 @@ from pyqit.utils.utils import (
     _cat,
     _count_params,
     _ensure_col,
+    _is_classifier,
     _is_torch,
     _mean,
     _stack,
@@ -139,13 +140,23 @@ class QuantumPipeline(BaseMetaObject):
         super().__init__()
 
         has_quantum = any(
-            s.model.get_tag("is_quantum", tag_value_default=False)
+            s.model.get_tag("is_quantum", False, raise_error=False)
             for _, s in self.steps
         )
+        kinds = [
+            s.model.get_tag("estimator_type", None, raise_error=False)
+            for _, s in self.steps
+        ]
+        if mode == "ensemble" and len(set(kinds)) > 1:
+            raise ValueError(
+                "Ensemble stages must all be classifiers or all regressors, since "
+                f"their outputs are aggregated into one prediction; got {kinds}."
+            )
         self.set_tags(
             mode=mode,
             n_stages=len(self.steps),
             has_quantum=has_quantum,
+            estimator_type=kinds[-1],
         )
 
     def set_params(self, **kwargs):
@@ -353,12 +364,6 @@ class QuantumPipeline(BaseMetaObject):
                     "frozen_backbone mode requires all stages except the last to "
                     f"be frozen. Stage '{trainable[0]}' has trainable=True."
                 )
-        elif self.fit_mode == "joint" and trainer.check_bp:
-            raise ValueError(
-                "check_bp reads one model's circuit and cannot run on a jointly "
-                "trained pipeline. Call check_barren_plateau on the quantum "
-                "stage's model instead."
-            )
 
         datamodule.setup(batch_size=trainer.batch_size)
 
@@ -438,12 +443,15 @@ class QuantumPipeline(BaseMetaObject):
         return named
 
     def predict_step(self, X):
-        """Run every stage on `X`, hard-labeling the final stage's output."""
+        """Run every stage on `X`, hard-labeling the final stage's output.
+
+        A regressor's output is returned as it is.
+        """
         if self.mode == "sequential":
             return self._run_sequential(X, labels=True)
 
         out = self._forward_ensemble(X)
-        if self.aggregation == "vote":
+        if self.aggregation == "vote" or not _is_classifier(self):
             return out
         if out.ndim > 1 and out.shape[1] > 1:
             return out.argmax(1)

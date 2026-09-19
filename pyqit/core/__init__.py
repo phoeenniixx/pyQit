@@ -21,7 +21,12 @@ from pyqit.core.losses import (
     MSELoss,
     get_loss_fn,
 )
-from pyqit.core.measurements import measure_expval_x, measure_expval_z, measure_probs
+from pyqit.core.measurements import (
+    measure_expval_x,
+    measure_expval_z,
+    measure_parity_z,
+    measure_probs,
+)
 from pyqit.core.pipeline import PipelineStage, QuantumPipeline
 from pyqit.core.trainer import Trainer, TrainingHistory
 
@@ -41,6 +46,7 @@ __all__ = [
     "measure_probs",
     "measure_expval_z",
     "measure_expval_x",
+    "measure_parity_z",
     "BaseCallback",
     "HistoryCallback",
     "ModelCheckpoint",

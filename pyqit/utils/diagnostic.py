@@ -7,6 +7,7 @@ from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.core.config import get_backend
 from pyqit.core.losses import get_loss_fn
+from pyqit.utils.utils import _qnode_of
 
 logger = logging.getLogger("pyqit.diagnostics")
 
@@ -188,15 +189,16 @@ def check_barren_plateau(
     if not all_keys:
         raise ValueError("Model has no tracked weights to calculate gradients for.")
 
-    n_qubits = getattr(model, "n_qubits", 1) or 1
-    measured_wires = getattr(model, "_measure_wires", range(n_qubits))
+    circuit = _circuit_of(model)
+    n_qubits = getattr(circuit, "n_qubits", 1) or 1
+    measured_wires = getattr(circuit, "_measure_wires", range(n_qubits))
     is_local_cost = len(measured_wires) < n_qubits
     if is_local_cost:
         raw_baseline = 1.0 / (2**n_qubits)
     else:
         raw_baseline = 1.0 / (3.0 * (4 ** (n_qubits - 1)))
 
-    scale_factor = model.get_tag("bp_scale_factor", tag_value_default=1.0)
+    scale_factor = circuit.get_tag("bp_scale_factor", 1.0, raise_error=False)
 
     expected_variance = raw_baseline * scale_factor
 
@@ -207,11 +209,11 @@ def check_barren_plateau(
     with _track_executions(model) as executions:
         if backend == "torch":
             layer_gradients = _sample_gradients_torch(
-                model, X, y_target, all_keys, num_samples, loss_name
+                model, X, y_target, all_keys, quantum_keys, num_samples, loss_name
             )
         else:
             layer_gradients = _sample_gradients_pennylane(
-                model, X, y_target, all_keys, num_samples, loss_name
+                model, X, y_target, all_keys, quantum_keys, num_samples, loss_name
             )
     layer_variances = {k: float(np.var(grads)) for k, grads in layer_gradients.items()}
     layer_ratios = {k: v / expected_variance for k, v in layer_variances.items()}
@@ -264,7 +266,7 @@ def _track_executions(model):
     import pennylane as qml
 
     nodes = getattr(model, "_qnodes", {}).values()
-    qnodes = (model._qnode_of(node) for node in nodes)
+    qnodes = (_qnode_of(node) for node in nodes)
     devices = {qnode.device for qnode in qnodes if qnode is not None}
     totals = {}
     with ExitStack() as stack:
@@ -274,8 +276,14 @@ def _track_executions(model):
         totals["executions"] = sum(t.totals.get("executions", 0) for t in trackers)
 
 
-def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):
-    """Safely mutates PyTorch nn.Parameters in place to evaluate gradients."""
+def _sample_gradients_torch(
+    model, X, y, weight_keys, random_keys, num_samples, loss_name
+):
+    """Mutate the ``nn.Parameter`` objects in ``random_keys`` in place, then restore.
+
+    Keys in ``weight_keys`` but not ``random_keys`` (classical layers) keep
+    their current values; their gradients are still collected.
+    """
     import torch
 
     loss_fn = get_loss_fn(loss_name, backend="torch")
@@ -284,7 +292,7 @@ def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):
     y_t = torch.as_tensor(np.asarray(y), dtype=torch.float64)
 
     original_state = {
-        k: v.detach().clone() for k, v in model.weights.items() if k in weight_keys
+        k: v.detach().clone() for k, v in model.weights.items() if k in random_keys
     }
     layer_gradients = {k: [] for k in weight_keys}
 
@@ -292,11 +300,11 @@ def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):
         for _ in range(num_samples):
             with torch.no_grad():
                 for k, param in model.weights.items():
-                    if k in weight_keys:
+                    if k in random_keys:
                         param.copy_(torch.empty_like(param).uniform_(0, 2 * np.pi))
 
-            if hasattr(model, "zero_grad"):
-                model.zero_grad()
+            for k in weight_keys:
+                model.weights[k].grad = None
 
             preds = model.forward(X_t)
             if preds.ndim == 0:
@@ -321,8 +329,9 @@ def _sample_gradients_torch(model, X, y, weight_keys, num_samples, loss_name):
     return layer_gradients
 
 
-def _sample_gradients_pennylane(model, X, y, weight_keys, num_samples, loss_name):
-    """Passes kwargs directly to forward() to preserve the PennyLane Autograd graph."""
+def _sample_gradients_pennylane(
+    model, X, y, weight_keys, random_keys, num_samples, loss_name
+):
     import pennylane as qml
     import pennylane.numpy as pnp
 
@@ -343,14 +352,16 @@ def _sample_gradients_pennylane(model, X, y, weight_keys, num_samples, loss_name
     grad_fn = qml.grad(cost)
 
     for _ in range(num_samples):
-        rand_weights = [
+        weights = [
             pnp.random.uniform(
                 0, 2 * np.pi, size=model.weights[k].shape, requires_grad=True
             )
+            if k in random_keys
+            else pnp.array(model.weights[k], requires_grad=True)
             for k in weight_keys
         ]
 
-        grads = grad_fn(*rand_weights)
+        grads = grad_fn(*weights)
         for k, g in zip(weight_keys, grads):
             layer_gradients[k].extend(np.asarray(g).flatten().tolist())
 
@@ -384,12 +395,50 @@ def _resolve_input(datamodule_or_X, y, model):
 
 
 def _split_weight_keys(model):
-    """Flat weight keys split into those of QNodes and those of classical layers."""
+    """Flat weight keys split into those of QNodes and those of classical layers.
+
+    A pipeline's keys are prefixed with the stage name, so its trainable stages
+    are split one by one rather than matched against its mangled ``_qnodes``.
+    """
+    steps = getattr(model, "steps", None)
+    if steps is not None:
+        quantum, classical = [], []
+        for name, stage in steps:
+            if stage.trainable:
+                q, c = _split_weight_keys(stage.model)
+                quantum += [f"{name}.{k}" for k in q]
+                classical += [f"{name}.{k}" for k in c]
+        return quantum, classical
+
     all_keys = list(model.weights.keys())
     nodes = getattr(model, "_qnodes", {})
-    classical = {name for name, node in nodes.items() if model._qnode_of(node) is None}
+    classical = {name for name, node in nodes.items() if _qnode_of(node) is None}
     q_keys = [k for k in all_keys if k.split(".", 1)[0] not in classical]
     return q_keys, [k for k in all_keys if k not in q_keys]
+
+
+def _circuit_of(model):
+    """The model whose circuit sets the baseline.
+
+    ``model`` itself, or for a pipeline its one trainable quantum stage. Two
+    such stages would need two floors, so that is rejected.
+    """
+    steps = getattr(model, "steps", None)
+    if steps is None:
+        return model
+    quantum = [
+        (name, s.model)
+        for name, s in steps
+        if s.trainable and _split_weight_keys(s.model)[0]
+    ]
+    if len(quantum) > 1:
+        names = [name for name, _ in quantum]
+        raise ValueError(
+            "check_barren_plateau compares gradients against one circuit's "
+            f"baseline, but this pipeline trains {len(quantum)} quantum stages "
+            f"{names}. Run it on each stage's model instead."
+        )
+    return _circuit_of(quantum[0][1]) if quantum else model
 
 
 def _plot(layer_gradients, quantum_keys, result: BPResult):

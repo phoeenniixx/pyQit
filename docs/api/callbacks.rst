@@ -28,6 +28,9 @@ once and both backends honour it.
    [EarlyStopping] Stopped at epoch 18 - val_loss did not improve for 3 epoch(s)
    [Checkpoint] Restored best weights from epoch 15 (val_loss: 0.3721)
 
+A checkpoint holds the optimizer state and history alongside the weights, so
+``ModelCheckpoint(resume_from=...)`` continues a run; its page shows how.
+
 Available callbacks
 ===================
 

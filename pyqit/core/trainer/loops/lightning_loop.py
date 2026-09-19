@@ -63,9 +63,16 @@ class LightningLoop(BaseTrainingLoop):
         trainer = self.trainer
         extra = self._lightning_kwargs()
 
+        self._emit(callbacks, "on_fit_start", state)
+        start_epoch = len(state.history.train_loss)
+
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
         pl_model = _LightningModelAdapter(
-            model, trainer.learning_rate, trainer.optimizer, loss_func
+            model,
+            trainer.learning_rate,
+            trainer.optimizer,
+            loss_func,
+            optimizer_state=state.optimizer_state,
         )
         pl_data = datamodule.to_lightning()
         has_val = datamodule.X_val is not None
@@ -75,12 +82,10 @@ class LightningLoop(BaseTrainingLoop):
 
         with log_ctx:
             pl_trainer = LightningTrainer(
-                max_epochs=trainer.max_epochs,
-                callbacks=[_PyQitCallbackShim(callbacks, state)],
+                max_epochs=max(trainer.max_epochs - start_epoch, 0),
+                callbacks=[_PyQitCallbackShim(callbacks, state, start_epoch)],
                 logger=trainer.logger,
                 enable_progress_bar=(self.reporter.verbose >= 1),
-                # pyqit's ModelCheckpoint owns checkpointing on both backends;
-                # leaving this on would write the run out twice.
                 enable_checkpointing=False,
                 # val_dataloader() returns None without a validation split,
                 # which Lightning rejects outright.

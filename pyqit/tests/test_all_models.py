@@ -128,12 +128,9 @@ class TestAllModels(BaseFixtureGenerator):
         ckpt_files = glob.glob("checkpoints/**/*", recursive=True)
         assert ckpt_files, f"{backend} checkpoint was not created!"
 
-        if backend == "pennylane":
-            saved = dict(np.load(ckpt_files[0]))
-        else:
-            import torch
+        from pyqit.core.callbacks.checkpoint import _read_checkpoint
 
-            saved = torch.load(ckpt_files[0], weights_only=False)["state_dict"]
+        saved = _read_checkpoint(ckpt_files[0])["weights"]
 
         assert set(saved) == set(model.weights), (
             f"checkpoint keys {sorted(saved)} do not match "
