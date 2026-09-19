@@ -4,6 +4,7 @@ from skbase.lookup import all_objects as _skbase_all_objects
 
 class _PyQitObject(BaseObject):
     _tags = {
+        "authors": "phoeenniixx",
         "python_dependencies": None,
         "tests:skip_tests": [],  # list of test names to skip for this class
         "tests:skip_params": [],  # list of param-set instance names to skip

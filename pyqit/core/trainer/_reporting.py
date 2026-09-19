@@ -207,6 +207,11 @@ class Reporter:
         table.add_column("Value", style="bold")
 
         table.add_row("Model Name", type(model).__name__)
+        table.add_row(
+            "Type",
+            f'{model.get_tag("model_type", "quantum", raise_error=False)} '
+            f'{model.get_tag("estimator_type", "model", raise_error=False)}',
+        )
         table.add_row("Backend", backend.capitalize())
         table.add_row("Qubits", str(getattr(model, "n_qubits", "N/A")))
         table.add_row("Ansatz", _obj_name(model, "ansatz_obj"))

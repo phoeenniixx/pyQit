@@ -57,6 +57,8 @@ class DressedQuantumClassifier(BaseQuantumModel, ClassifierMixin):
     >>> history = pyqit.Trainer(max_epochs=5).fit(model, dm)  # doctest: +SKIP
     """
 
+    _tags = {"model_type": "hybrid"}
+
     _LAYER_ENTRY = {
         "pre_net": "dense",
         "quantum": "main_circuit",
