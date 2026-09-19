@@ -36,6 +36,9 @@ class VQCRegressor(BaseVQC, RegressorMixin):
         are ``output.weight`` and ``output.bias``.
     device : str, default "default.qubit"
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
 
     References
     ----------
@@ -61,6 +64,7 @@ class VQCRegressor(BaseVQC, RegressorMixin):
         output_scale=True,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
         self.output_scale = output_scale
         super().__init__(
@@ -72,6 +76,7 @@ class VQCRegressor(BaseVQC, RegressorMixin):
             measure_wires=measure_wires,
             device=device,
             shots=shots,
+            diff_method=diff_method,
         )
         if output_scale:
             identity = {

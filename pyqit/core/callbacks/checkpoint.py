@@ -25,10 +25,18 @@ _HISTORY_KEYS = ("train_loss", "val_loss", "train_acc", "val_acc", "epoch_times"
 
 
 def _optimizer_state(optimizer):
-    """A detached copy of what the optimizer accumulates, on either backend."""
+    """A detached copy of what the optimizer accumulates, on either backend.
+
+    Torch gives one ``state_dict`` over its parameter groups; pennylane gives
+    one ``qml`` optimizer per weight group, so its state is keyed by group.
+    """
     if hasattr(optimizer, "state_dict"):
         return copy.deepcopy(optimizer.state_dict())
-    return copy.deepcopy(getattr(optimizer, "accumulation", None))
+    state = {
+        g: getattr(opt, "accumulation", None) for g, opt in (optimizer or {}).items()
+    }
+    state = {g: acc for g, acc in state.items() if acc is not None}
+    return copy.deepcopy(state) if state else None
 
 
 def _snapshot(state: LoopState, n_epochs: int | None = None) -> dict:
@@ -59,12 +67,11 @@ def _write_checkpoint(path: str, snapshot: dict) -> None:
     arrays = {f"weights/{k}": np.asarray(v) for k, v in snapshot["weights"].items()}
     for key, series in snapshot["history"].items():
         arrays[f"history/{key}"] = np.asarray(series, dtype=float)
-    accumulation = snapshot["optimizer"]
-    if accumulation is not None:
-        arrays["optimizer/t"] = accumulation["t"]
+    for group, accumulation in (snapshot["optimizer"] or {}).items():
+        arrays[f"optimizer/{group}/t"] = accumulation["t"]
         for moment in ("fm", "sm"):
             for i, value in enumerate(accumulation[moment]):
-                arrays[f"optimizer/{moment}{i}"] = np.asarray(value)
+                arrays[f"optimizer/{group}/{moment}{i}"] = np.asarray(value)
     np.savez(path, **arrays)
 
 
@@ -81,21 +88,23 @@ def _read_checkpoint(path: str) -> dict:
         }
 
     data = np.load(path)
-    optimizer = None
-    if "optimizer/t" in data.files:
-        n = sum(k.startswith("optimizer/fm") for k in data.files)
-        optimizer = {
-            "t": int(data["optimizer/t"]),
-            "fm": [data[f"optimizer/fm{i}"] for i in range(n)],
-            "sm": [data[f"optimizer/sm{i}"] for i in range(n)],
-        }
+    optimizer = {}
+    for key in data.files:
+        if key.startswith("optimizer/") and key.endswith("/t"):
+            group = key[len("optimizer/") : -len("/t")]
+            n = sum(k.startswith(f"optimizer/{group}/fm") for k in data.files)
+            optimizer[group] = {
+                "t": int(data[key]),
+                "fm": [data[f"optimizer/{group}/fm{i}"] for i in range(n)],
+                "sm": [data[f"optimizer/{group}/sm{i}"] for i in range(n)],
+            }
     return {
         "weights": {
             k[len("weights/") :]: data[k]
             for k in data.files
             if k.startswith("weights/")
         },
-        "optimizer": optimizer,
+        "optimizer": optimizer or None,
         "history": {
             k[len("history/") :]: data[k].tolist()
             for k in data.files

@@ -115,6 +115,9 @@ class QuantumLayer(BaseVQC):
         Drives the prescaling the pipeline applies to this stage's input.
     device : str, default "default.qubit"
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
 
     Examples
     --------
@@ -132,6 +135,7 @@ class QuantumLayer(BaseVQC):
         encoder=AngleEmbedding,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
         super().__init__(
             n_qubits=n_qubits,
@@ -140,6 +144,7 @@ class QuantumLayer(BaseVQC):
             encoder=encoder,
             device=device,
             shots=shots,
+            diff_method=diff_method,
         )
         self._z_from_probs = z_from_probs(n_qubits)
 

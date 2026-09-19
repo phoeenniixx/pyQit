@@ -252,6 +252,15 @@ class QuantumPipeline(BaseMetaObject):
             for key, value in stage.model.weights.items()
         }
 
+    def weight_groups(self) -> dict:
+        """The trainable stages' `weight_groups`, keyed like `weights`."""
+        groups = {}
+        for name, stage in self.steps:
+            if stage.trainable:
+                for group, keys in stage.model.weight_groups().items():
+                    groups.setdefault(group, []).extend(f"{name}.{k}" for k in keys)
+        return groups
+
     def update_weights(self, flat_weights_dict):
         """Write `flat_weights_dict`, keyed like `weights`, into the stages."""
         for name, stage in self.steps:

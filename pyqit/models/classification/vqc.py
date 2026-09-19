@@ -27,6 +27,9 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
     device : str, default "default.qubit"
         Any PennyLane device name.
     shots : int, optional
+    diff_method : str, default "best"
+        Passed to the QNode. ``"best"`` picks backprop on a simulator;
+        ``"parameter-shift"`` rehearses a hardware run's gradient cost.
         `None` runs analytic (infinite-shot) simulation.
 
     References
@@ -53,6 +56,7 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
         measure_wires=None,
         device="default.qubit",
         shots=None,
+        diff_method="best",
     ):
         self.n_classes = n_classes
         super().__init__(
@@ -64,6 +68,7 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
             measure_wires=measure_wires,
             device=device,
             shots=shots,
+            diff_method=diff_method,
         )
 
     def __repr__(self):

@@ -395,26 +395,9 @@ def _resolve_input(datamodule_or_X, y, model):
 
 
 def _split_weight_keys(model):
-    """Flat weight keys split into those of QNodes and those of classical layers.
-
-    A pipeline's keys are prefixed with the stage name, so its trainable stages
-    are split one by one rather than matched against its mangled ``_qnodes``.
-    """
-    steps = getattr(model, "steps", None)
-    if steps is not None:
-        quantum, classical = [], []
-        for name, stage in steps:
-            if stage.trainable:
-                q, c = _split_weight_keys(stage.model)
-                quantum += [f"{name}.{k}" for k in q]
-                classical += [f"{name}.{k}" for k in c]
-        return quantum, classical
-
-    all_keys = list(model.weights.keys())
-    nodes = getattr(model, "_qnodes", {})
-    classical = {name for name, node in nodes.items() if _qnode_of(node) is None}
-    q_keys = [k for k in all_keys if k.split(".", 1)[0] not in classical]
-    return q_keys, [k for k in all_keys if k not in q_keys]
+    """Flat weight keys split into those of QNodes and those of classical layers."""
+    groups = model.weight_groups()
+    return groups.get("quantum", []), groups.get("classical", [])
 
 
 def _circuit_of(model):

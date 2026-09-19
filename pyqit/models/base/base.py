@@ -123,6 +123,22 @@ class BaseModel(_PyQitObject):
                     flat_weights[f"{node_name}.{w_name}"] = w_val
         return flat_weights
 
+    def weight_groups(self) -> dict:
+        """`weights` keys by group, ``"quantum"`` (QNodes) and ``"classical"``.
+
+        Empty groups are omitted. The training loops build one optimizer per
+        group, which is what lets ``Trainer(learning_rate={...})`` set a rate
+        per group.
+        """
+        classical = {
+            n for n, node in self._qnodes.items() if self._qnode_of(node) is None
+        }
+        groups = {"quantum": [], "classical": []}
+        for key in self.weights:
+            group = "classical" if key.split(".", 1)[0] in classical else "quantum"
+            groups[group].append(key)
+        return {g: keys for g, keys in groups.items() if keys}
+
     def update_weights(self, flat_weights_dict):
         """Write `flat_weights_dict` into the model's own weights.
 

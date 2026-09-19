@@ -29,7 +29,8 @@ class PennyLaneLoop(BaseTrainingLoop):
         trainer = self.trainer
         loss_fn = get_loss_fn(trainer.loss_fn, backend="pennylane")
 
-        weight_keys = list(model.weights.keys())
+        groups = model.weight_groups()
+        weight_keys = [k for keys in groups.values() for k in keys]
 
         train_loader = datamodule.train_loader()
         val_loader = datamodule.val_loader(shuffle=False)
@@ -47,15 +48,19 @@ class PennyLaneLoop(BaseTrainingLoop):
 
         self._emit(callbacks, "on_fit_start", state)
 
-        opt = self._make_optimizer(trainer)
-        if state.optimizer_state is not None:
-            if not hasattr(opt, "accumulation"):
+        opts = {
+            g: self._make_optimizer(trainer, lr)
+            for g, lr in self._learning_rates(model).items()
+        }
+        for g, accumulation in (state.optimizer_state or {}).items():
+            if g not in opts or not hasattr(opts[g], "accumulation"):
                 raise ValueError(
-                    f"An optimizer state was given, but {type(opt).__name__} "
-                    "carries none. Resume with the optimizer that wrote it."
+                    f"The optimizer state holds a {g!r} group, but this run "
+                    f"has {sorted(opts)} under {trainer.optimizer!r}. Resume "
+                    "with the model and optimizer that wrote it."
                 )
-            opt.accumulation = state.optimizer_state
-        state.optimizer = opt
+            opts[g].accumulation = accumulation
+        state.optimizer = opts
         current_weights = [
             pnp.array(model.weights[k], requires_grad=True) for k in weight_keys
         ]
@@ -70,10 +75,20 @@ class PennyLaneLoop(BaseTrainingLoop):
                     X_b = pnp.array(X_batch, requires_grad=False)
                     y_b = pnp.array(y_batch, requires_grad=False)
 
-                    args_out, batch_loss = opt.step_and_cost(
-                        batch_cost, X_b, y_b, *current_weights
+                    args = (X_b, y_b, *current_weights)
+                    grad, batch_loss = qml.GradientDescentOptimizer.compute_grad(
+                        batch_cost, args, {}
                     )
-                    current_weights = list(args_out[2:])
+                    if batch_loss is None:
+                        batch_loss = batch_cost(*args)
+                    stepped, start = [], 0
+                    for g, opt in opts.items():
+                        stop = start + len(groups[g])
+                        stepped += opt.apply_grad(
+                            grad[start:stop], current_weights[start:stop]
+                        )
+                        start = stop
+                    current_weights = stepped
                     batch_losses.append(float(batch_loss))
                     batch_sizes.append(len(y_batch))
 
@@ -118,8 +133,8 @@ class PennyLaneLoop(BaseTrainingLoop):
         return {f"{split}_loss": loss, f"{split}_acc": acc}
 
     @staticmethod
-    def _make_optimizer(trainer):
-        """The ``qml`` optimizer named by ``trainer.optimizer``.
+    def _make_optimizer(trainer, stepsize):
+        """The ``qml`` optimizer named by ``trainer.optimizer`` at ``stepsize``.
 
         The name is case-folded here rather than in ``Trainer.__init__``, which
         must store its arguments verbatim for skbase's ``get_params``/``clone``.
@@ -127,8 +142,8 @@ class PennyLaneLoop(BaseTrainingLoop):
         name = trainer.optimizer
         name = name.lower() if isinstance(name, str) else name
         if name == "adam":
-            return qml.AdamOptimizer(stepsize=trainer.learning_rate)
-        return qml.GradientDescentOptimizer(stepsize=trainer.learning_rate)
+            return qml.AdamOptimizer(stepsize=stepsize)
+        return qml.GradientDescentOptimizer(stepsize=stepsize)
 
     @staticmethod
     def _evaluate(model, dataloader, loss_fn) -> tuple[float, float]:

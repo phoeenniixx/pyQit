@@ -4,8 +4,10 @@ Object overview
 
 Every public object with its tags. Type in the box to narrow the table: each
 word must appear somewhere in the row, so ``model hybrid`` finds the hybrid
-models and ``regressor`` finds everything that predicts values. The same
-search from code:
+models and ``regressor`` finds everything that predicts values.
+Inspired from ``sktime`` tag system: https://www.sktime.net/models/
+
+The same search from code:
 
 .. code-block:: python
 
