@@ -54,6 +54,7 @@ def all_objects(
         exclude_objects=exclude_objects or [],
         filter_tags=combined_filter or None,
         package_name=package_name,
+        modules_to_ignore="tests",
     )
 
     return results
