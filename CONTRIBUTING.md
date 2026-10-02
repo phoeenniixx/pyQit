@@ -1,6 +1,6 @@
 # Contributing
 
-PyQit is `0.1.0`. Issues and PRs are welcome
+PyQit version `0.1.1`. Issues and PRs are welcome
 ## Setup
 
 ```bash

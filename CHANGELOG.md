@@ -2,6 +2,20 @@
 
 Generated from merged pull requests with `build_tools/changelog.py`; see that file's
 docstring for how classification works.
+## 0.1.1
+Patch release to fix barren-plateau check samples
+
+### Bug fixes
+
+- Fix which gradients the barren-plateau check samples ([#51](https://github.com/phoeenniixx/pyQit/pull/51)) by [@phoeenniixx](https://github.com/phoeenniixx)
+
+### Maintenance
+
+- \[Dependabot\](deps): Update scikit-base requirement from <1.2.0 to <1.3.0 ([#50](https://github.com/phoeenniixx/pyQit/pull/50)) by [@app/dependabot](https://github.com/app/dependabot)
+
+### Contributors
+
+[@phoeenniixx](https://github.com/phoeenniixx)
 
 ## 0.1.0
 

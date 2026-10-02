@@ -19,7 +19,7 @@ them and the same code trains through PyTorch Lightning instead of autograd. Tha
 PyTorch project, not PennyLane's `lightning.qubit` simulator, which is a device and works
 on either backend.
 
-Version `0.1.0`.
+Version `0.1.1` is out now!
 
 The [documentation](https://pyqit.readthedocs.io/en/stable/) has the tutorials, the API
 reference and the design notes. This page is the short version.
