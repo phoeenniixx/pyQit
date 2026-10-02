@@ -11,6 +11,8 @@ from pyqit.utils.utils import _qnode_of
 
 logger = logging.getLogger("pyqit.diagnostics")
 
+_DEAD_GRADIENT = 1e-12
+
 
 @dataclass
 class BPResult:
@@ -21,15 +23,38 @@ class BPResult:
 
     Attributes
     ----------
-    n_qubits, n_samples : int
-    layer_variances, layer_ratios : dict of {str: float}
-        Per-weight-layer gradient variance, and its ratio to the baseline.
-    overall_variance, quantum_variance : float
+    n_qubits : int
+        Width of the circuit that sets the baseline. For a pipeline, that is
+        its one trainable quantum stage.
+    n_samples : int
+        Random weight draws the gradients were sampled at.
+    layer_variances : dict of {str: float}
+        Gradient variance per weight tensor, keyed by its name in
+        `model.weights`, such as `"main_circuit.weights"`. Circuit tensors
+        count live parameters only. Classical tensors are included.
+    layer_ratios : dict of {str: float}
+        Each entry of `layer_variances` divided by `expected_variance`. The
+        table marks a ratio below 1 as a plateau.
+    overall_variance : float
+        The same value as `quantum_variance`.
     expected_variance : float
         Theoretical floor from McClean et al., scaled by `bp_scale_factor`.
+        For a local cost it is about twice the gradient variance of a random
+        circuit, so a flagged model is within a factor of two of random.
     is_barren : bool
+        True when `quantum_variance` is below `expected_variance`.
+    quantum_variance : float
+        Mean of the circuit tensors' variances. This is the number the
+        verdict is made on. NaN when the model has no circuit weights.
     classical_variance : float, optional
-        Set only for hybrid models with classical weight layers.
+        Mean of the classical tensors' variances. `None` when the model has
+        no classical weights.
+    n_parameters : int, optional
+        Circuit parameters sampled, dead ones included.
+    n_dead_parameters : int, optional
+        Circuit parameters whose gradient was zero in every sample because
+        they cannot reach the measured wires. They are left out of the
+        variance.
     n_executions : int, optional
         Circuit executions the sampling cost, as counted by the device: one
         per sample under backprop, one plus two per parameter under
@@ -46,6 +71,8 @@ class BPResult:
     quantum_variance: float
     classical_variance: float | None = None
     n_executions: int | None = None
+    n_parameters: int | None = None
+    n_dead_parameters: int | None = None
 
     def __repr__(self) -> str:
         has_rich = _check_soft_dependencies("rich", severity="none")
@@ -62,6 +89,9 @@ class BPResult:
 
     def __rich__(self):
         return self._build_rich_table()
+
+    def _dead_text(self) -> str:
+        return f"{self.n_dead_parameters} of {self.n_parameters}"
 
     def _build_rich_table(self):
         from rich.table import Table
@@ -82,6 +112,8 @@ class BPResult:
         table.add_row("Samples", str(self.n_samples), "")
         if self.n_executions is not None:
             table.add_row("Circuit Executions", str(self.n_executions), "")
+        if self.n_dead_parameters:
+            table.add_row("Dead Parameters", self._dead_text(), "[dim]Excluded[/]")
         table.add_row(
             "Expected Variance", f"{self.expected_variance:.2e}", "[dim]Baseline[/]"
         )
@@ -123,6 +155,9 @@ class BPResult:
         ]
         if self.n_executions is not None:
             lines.insert(6, f"{'Circuit Executions':<25} : {self.n_executions}")
+
+        if self.n_dead_parameters:
+            lines.append(f"{'Dead Parameters':<25} : {self._dead_text()} (Excluded)")
 
         if self.classical_variance is not None:
             lines.append(f"{'Classical Variance':<25} : {self.classical_variance:.2e}")
@@ -215,7 +250,15 @@ def check_barren_plateau(
             layer_gradients = _sample_gradients_pennylane(
                 model, X, y_target, all_keys, quantum_keys, num_samples, loss_name
             )
-    layer_variances = {k: float(np.var(grads)) for k, grads in layer_gradients.items()}
+    layer_variances, n_parameters, n_dead = {}, 0, 0
+    for k, grads in layer_gradients.items():
+        per_param = np.asarray(grads).reshape(num_samples, -1)
+        if k in quantum_keys:
+            live = np.abs(per_param).max(axis=0) > _DEAD_GRADIENT
+            n_parameters += live.size
+            n_dead += int(live.size - live.sum())
+            per_param = per_param[:, live]
+        layer_variances[k] = float(np.var(per_param)) if per_param.size else 0.0
     layer_ratios = {k: v / expected_variance for k, v in layer_variances.items()}
 
     quantum_vars = [layer_variances[k] for k in quantum_keys if k in layer_variances]
@@ -252,6 +295,8 @@ def check_barren_plateau(
         quantum_variance=quantum_variance,
         classical_variance=classical_variance,
         n_executions=executions.get("executions"),
+        n_parameters=n_parameters,
+        n_dead_parameters=n_dead,
     )
 
     if plot:
@@ -362,6 +407,8 @@ def _sample_gradients_pennylane(
         ]
 
         grads = grad_fn(*weights)
+        if not isinstance(grads, tuple):
+            grads = (grads,)
         for k, g in zip(weight_keys, grads):
             layer_gradients[k].extend(np.asarray(g).flatten().tolist())
 

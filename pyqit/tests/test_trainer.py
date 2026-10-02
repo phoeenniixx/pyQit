@@ -579,6 +579,35 @@ def test_bp_check_on_torch_agrees_with_pennylane():
     assert 0.5 < variance["torch"] / variance["pennylane"] < 2.0
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bp_check_samples_every_layer_of_a_deep_circuit(backend):
+    """A single weight tensor's gradient is an array, not a tuple of one."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    model = _model(n_layers=3)
+    dm = _dm().setup(n_qubits=3, encoder=type(model.embedding_obj))
+
+    result = check_barren_plateau(model, dm, num_samples=4, plot=False)
+
+    assert result.n_parameters == 3 * 3 * 3
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bp_check_reports_weights_that_cannot_reach_the_measured_wire(backend):
+    """One SEL layer read on wire 0: wire 0's rotation and every final RZ are dead."""
+    from pyqit.utils.diagnostic import check_barren_plateau
+
+    _require(backend)
+    model = _model(n_qubits=4)
+    dm = _dm(n_qubits=4).setup(n_qubits=4, encoder=type(model.embedding_obj))
+
+    result = check_barren_plateau(model, dm, num_samples=8, plot=False)
+
+    assert result.n_dead_parameters == 3 + 3
+    assert "6 of 12" in repr(result)
+
+
 def test_learning_rate_naming_a_group_the_model_lacks_raises():
     """A pure circuit has no classical group to give a rate to."""
     _require("pennylane")
