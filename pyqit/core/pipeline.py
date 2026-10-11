@@ -5,7 +5,8 @@ import numpy as np
 from skbase.base import BaseMetaObject
 
 from pyqit.core.trainer import Trainer, console, has_rich
-from pyqit.data.datamodule import DataModule, _apply_prescale
+from pyqit.data.datamodule import DataModule
+from pyqit.data.utils import _apply_prescale
 from pyqit.utils.utils import (
     _cat,
     _count_params,

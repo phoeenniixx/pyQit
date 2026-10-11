@@ -419,11 +419,6 @@ def _resolve_input(datamodule_or_X, y, model):
     from pyqit.data.datamodule import DataModule
 
     if isinstance(datamodule_or_X, DataModule):
-        if not datamodule_or_X._is_setup:
-            raise ValueError(
-                "DataModule is not set up. You must call `dm.setup(stage='fit')` "
-                "with the correct encoder before passing it to the diagnostic tool."
-            )
         X_data = (
             datamodule_or_X.X_val
             if datamodule_or_X.X_val is not None
