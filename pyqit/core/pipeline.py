@@ -418,7 +418,7 @@ class QuantumPipeline(BaseMetaObject):
         import torch
 
         if not _is_torch(X):
-            X = torch.as_tensor(np.asarray(X), dtype=torch.float32)
+            X = torch.as_tensor(np.asarray(X), dtype=torch.get_default_dtype())
         with torch.no_grad():
             out = self._run_stage(stage, X)
         return out.detach() if _is_torch(out) else out
