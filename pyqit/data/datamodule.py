@@ -59,15 +59,22 @@ class _NumpyLoader:
 
 
 def _make_torch_loader(
-    X, y, batch_size, shuffle, num_workers=0, tensor_transform=None, drop_last=False
+    X,
+    y,
+    batch_size,
+    shuffle,
+    num_workers=0,
+    tensor_transform=None,
+    drop_last=False,
+    seed=None,
 ):
     import torch
-    from torch.utils.data import DataLoader, Dataset
+    from torch.utils.data import DataLoader, Dataset, Sampler
 
     class _DS(Dataset):
         def __init__(self, X, y):
-            self.X = torch.as_tensor(X, dtype=torch.float32)
-            self.y = torch.as_tensor(y, dtype=torch.float32)
+            self.X = torch.as_tensor(X, dtype=torch.get_default_dtype())
+            self.y = torch.as_tensor(y, dtype=torch.get_default_dtype())
 
         def __len__(self):
             return len(self.X)
@@ -78,10 +85,21 @@ def _make_torch_loader(
                 x = tensor_transform(x)
             return x, self.y[i]
 
+    class _NumpyOrder(Sampler):
+        def __init__(self, n):
+            self.n = n
+            self._rng = np.random.default_rng(seed)
+
+        def __iter__(self):
+            return iter(self._rng.permutation(self.n).tolist())
+
+        def __len__(self):
+            return self.n
+
     return DataLoader(
         _DS(X, y),
         batch_size=batch_size,
-        shuffle=shuffle,
+        sampler=_NumpyOrder(len(X)) if shuffle else None,
         num_workers=num_workers,
         drop_last=drop_last,
     )
@@ -486,6 +504,7 @@ class DataModule:
                 num_workers=self.num_workers,
                 tensor_transform=self._torch_transform,
                 drop_last=drop_last,
+                seed=self.seed,
             )
         return _NumpyLoader(
             X,

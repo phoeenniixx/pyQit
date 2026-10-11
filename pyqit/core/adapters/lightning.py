@@ -184,43 +184,17 @@ class _LightningDataAdapter(LightningDataModule):
                 "adapter to a Lightning Trainer."
             )
 
-    def _build_loader(self, X, y, shuffle=False, drop_last=False):
-        import torch
-        from torch.utils.data import DataLoader, TensorDataset
-
-        if X is None or y is None:
-            return None
-
-        dataset = TensorDataset(
-            torch.as_tensor(X, dtype=torch.float32),
-            torch.as_tensor(y, dtype=torch.float32),
-        )
-        return DataLoader(
-            dataset,
-            batch_size=self.dm.batch_size,
-            num_workers=self.dm.num_workers,
-            shuffle=shuffle,
-            drop_last=drop_last,
-        )
-
     def train_dataloader(self):
         """Loader over the training split."""
-        return self._build_loader(
-            self.dm._X_train,
-            self.dm._y_train,
-            shuffle=self.dm.shuffle,
-            drop_last=self.dm.drop_last,
-        )
+        return self.dm.train_loader()
 
     def val_dataloader(self):
         """Loader over the validation split, or None if there is none."""
-        if self.dm._X_val is not None:
-            return self._build_loader(self.dm._X_val, self.dm._y_val)
-        return None
+        return self.dm.val_loader()
 
     def test_dataloader(self):
         """Loader over the test split."""
-        return self._build_loader(self.dm._X_test, self.dm._y_test)
+        return self.dm.test_loader()
 
 
 class _PyQitCallbackShim(Callback):
