@@ -18,7 +18,7 @@ class LoopState:
         The data it is training on, already set up.
     history : TrainingHistory
         Metrics recorded so far this run.
-    reporter : Reporter
+    reporter : ModelReporter
         Console output, for callbacks that announce something.
     max_epochs : int
         Epoch budget for the run.

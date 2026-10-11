@@ -2,7 +2,6 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-import logging
 import sys
 
 import numpy as np
@@ -26,24 +25,6 @@ def console():
 
         _CONSOLE = Console()
     return _CONSOLE
-
-
-@contextmanager
-def lightning_log_level(level: int) -> Iterator[None]:
-    """Raise Lightning's logger level for the duration of the block.
-
-    Parameters
-    ----------
-    level : int
-        A ``logging`` level applied to the ``lightning.pytorch`` logger.
-    """
-    lit_logger = logging.getLogger("lightning.pytorch")
-    previous = lit_logger.level
-    lit_logger.setLevel(level)
-    try:
-        yield
-    finally:
-        lit_logger.setLevel(previous)
 
 
 class _NullProgress:
@@ -109,8 +90,47 @@ class _PlainProgress:
         sys.stdout.flush()
 
 
-class Reporter:
-    """All user-facing output for one training run.
+class _BaseReporter:
+    """Tagged one-line messages with a rich/plain fallback.
+
+    Parameters
+    ----------
+    verbose : int
+        ``0`` silent; anything higher prints.
+    """
+
+    tag = "PyQit"
+
+    def __init__(self, verbose: int):
+        self.verbose = verbose
+
+    def _emit(self, rich_markup: str, plain: str) -> None:
+        if has_rich():
+            console().print(rich_markup)
+        else:
+            print(plain)
+
+    def _tagged(self, msg: str, tag: str | None, color: str) -> None:
+        if self.verbose < 1:
+            return
+        tag = tag or self.tag
+        self._emit(f"[bold {color}][{tag}][/bold {color}] {msg}", f"[{tag}] {msg}")
+
+    def info(self, msg: str, tag: str | None = None) -> None:
+        """Print a neutral message."""
+        self._tagged(msg, tag, "cyan")
+
+    def success(self, msg: str, tag: str | None = None) -> None:
+        """Print a success message."""
+        self._tagged(msg, tag, "green")
+
+    def warn(self, msg: str, tag: str | None = None) -> None:
+        """Print a warning message."""
+        self._tagged(msg, tag, "yellow")
+
+
+class ModelReporter(_BaseReporter):
+    """All user-facing output for one model's training run.
 
     Parameters
     ----------
@@ -123,44 +143,17 @@ class Reporter:
         clears it and prints one summary covering every stage.
     """
 
+    tag = "Trainer"
+
     def __init__(self, verbose: int, max_epochs: int, show_summary: bool = True):
-        self.verbose = verbose
+        super().__init__(verbose)
         self.max_epochs = max_epochs
         self.show_summary = show_summary
-
-    @property
-    def quiet(self) -> bool:
-        """Whether all output is suppressed."""
-        return self.verbose < 1
 
     @property
     def summary_suppressed(self) -> bool:
         """Whether the run summary is withheld, for any reason."""
         return not self.show_summary or self.verbose < 2
-
-    def _emit(self, rich_markup: str, plain: str) -> None:
-        if has_rich():
-            console().print(rich_markup)
-        else:
-            print(plain)
-
-    def info(self, msg: str, tag: str = "Trainer") -> None:
-        """Print a neutral message."""
-        if self.verbose < 1:
-            return
-        self._emit(f"[bold cyan][{tag}][/bold cyan] {msg}", f"[{tag}] {msg}")
-
-    def success(self, msg: str, tag: str = "Trainer") -> None:
-        """Print a success message."""
-        if self.verbose < 1:
-            return
-        self._emit(f"[bold green][{tag}][/bold green] {msg}", f"[{tag}] {msg}")
-
-    def warn(self, msg: str, tag: str = "Trainer") -> None:
-        """Print a warning message."""
-        if self.verbose < 1:
-            return
-        self._emit(f"[bold yellow][{tag}][/bold yellow] {msg}", f"[{tag}] {msg}")
 
     def banner(self, backend: str, learning_rate: float) -> None:
         """Print a one-line run header, used in place of the full table."""
@@ -179,7 +172,11 @@ class Reporter:
             )
 
     def model_summary(self, model, dm, backend: str, optimizer: str, lr: float) -> None:
-        """Print the architecture and split sizes, once per fit.
+        """Print the run header, once per fit.
+
+        - Nothing when the summary is withheld or ``verbose`` is 0
+        - the one-line banner at ``verbose=1`` or without rich
+        - the full table otherwise.
 
         Parameters
         ----------
@@ -194,9 +191,9 @@ class Reporter:
         lr : float
             Learning rate.
         """
-        if self.summary_suppressed:
+        if not self.show_summary or self.verbose < 1:
             return
-        if not has_rich():
+        if self.verbose < 2 or not has_rich():
             self.banner(backend, lr)
             return
 
@@ -264,6 +261,60 @@ class Reporter:
                 yield _RichProgress(progress, task_id, self.max_epochs)
         else:
             yield _PlainProgress(self.max_epochs)
+
+
+class PipelineReporter(_BaseReporter):
+    """Output for one ``QuantumPipeline`` fit: the stage table and stage headers.
+
+    Parameters
+    ----------
+    verbose : int
+        ``0`` silent, ``1`` stage headers only, ``2`` headers plus the table.
+    """
+
+    tag = "Pipeline"
+
+    def summary(self, header: str, columns: tuple, rows: list) -> None:
+        """Print the stage table once, in place of one model table per stage.
+
+        Parameters
+        ----------
+        header : str
+            One line naming the pipeline's mode and stage count.
+        columns : tuple of str
+            Column titles.
+        rows : list of tuple of str
+            One entry per stage, aligned with ``columns``.
+        """
+        if self.verbose < 2:
+            return
+        if not has_rich():
+            print(f"\n[{self.tag}] {header}")
+            widths = [
+                max(len(c), *(len(r[j]) for r in rows)) for j, c in enumerate(columns)
+            ]
+            fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+            print("  " + fmt.format(*columns))
+            for row in rows:
+                print("  " + fmt.format(*row))
+            print()
+            return
+
+        from rich.table import Table
+
+        table = Table(show_header=True, header_style="bold cyan", box=None)
+        for column in columns:
+            table.add_column(column, style="bold" if column == "Stage" else None)
+        for row in rows:
+            table.add_row(*row)
+
+        console().print(f"[bold cyan][{self.tag}][/bold cyan] {header}")
+        console().print(table)
+        console().print()
+
+    def announce_stage(self, idx: int, total: int, name: str) -> None:
+        """Name the stage about to train, since its Trainer prints no header."""
+        self.info(f"[{idx + 1}/{total}] Fitting stage {name!r}")
 
 
 def _obj_name(model, attr: str) -> str:
