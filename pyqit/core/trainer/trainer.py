@@ -41,8 +41,9 @@ class Trainer(_PyQitObject):
         ``{"quantum": ..., "classical": ...}``, naming exactly the groups
         ``model.weight_groups()`` has. A pure circuit model has ``"quantum"``
         only; a hybrid has both.
-    batch_size : int, default 32
+    batch_size : int, optional
         Applied to the DataModule at ``setup``, overriding its own setting.
+        ``None`` keeps the DataModule's.
     optimizer : {"adam", "sgd"}, default "adam"
     loss_fn : str or callable, default "mse"
         A name from ``loss_registry()``, or a callable taking ``(preds, y)``.
@@ -81,7 +82,7 @@ class Trainer(_PyQitObject):
         self,
         max_epochs: int = 30,
         learning_rate: float | dict = 0.01,
-        batch_size: int = 32,
+        batch_size: int | None = None,
         optimizer: str = "adam",
         loss_fn: str | Callable = "mse",
         callbacks: list | None = None,
