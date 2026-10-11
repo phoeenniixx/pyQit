@@ -10,6 +10,7 @@ from pyqit.utils.utils import (
     _cat,
     _count_params,
     _ensure_col,
+    _hard_labels,
     _is_classifier,
     _is_torch,
     _mean,
@@ -407,10 +408,10 @@ class QuantumPipeline(BaseMetaObject):
 
     def _transform_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
         """Run ``stage`` over every split of the unprescaled ``dm``."""
-        return dm._map_features(lambda X: self._transform_split(stage, X, dm._backend))
+        return dm._map_features(lambda X: self._transform_split(stage, X))
 
-    def _transform_split(self, stage, X, backend):
-        if backend != "torch" and not _is_torch(X):
+    def _transform_split(self, stage, X):
+        if stage.model.backend != "torch" and not _is_torch(X):
             return self._run_stage(stage, X)
 
         import torch
@@ -462,10 +463,7 @@ class QuantumPipeline(BaseMetaObject):
         out = self._forward_ensemble(X)
         if self.aggregation == "vote" or not _is_classifier(self):
             return out
-        if out.ndim > 1 and out.shape[1] > 1:
-            return out.argmax(1)
-        labels = out >= 0.5
-        return labels.int() if _is_torch(labels) else labels.astype(int)
+        return _hard_labels(out)
 
     def _print_pipeline_summary(self, reporter: PipelineReporter):
         """Print the pipeline structure once, in place of N per-model tables."""
