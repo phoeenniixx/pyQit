@@ -33,7 +33,7 @@ class BaseTrainingLoop(_PyQitObject):
     ----------
     trainer : Trainer
         The Trainer whose settings this loop runs under.
-    reporter : Reporter
+    reporter : ModelReporter
         Console output for the run.
     """
 

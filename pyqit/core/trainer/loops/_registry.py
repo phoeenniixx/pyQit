@@ -30,7 +30,7 @@ def get_training_loop(backend: str, trainer, reporter):
         Backend name, as returned by ``get_backend()``.
     trainer : Trainer
         Passed to the loop and validated against it.
-    reporter : Reporter
+    reporter : ModelReporter
         Console output for the run.
 
     Returns

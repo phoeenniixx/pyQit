@@ -1,15 +1,16 @@
-from contextlib import contextmanager
 import copy
 
 import numpy as np
 from skbase.base import BaseMetaObject
 
-from pyqit.core.trainer import Trainer, console, has_rich
-from pyqit.data.datamodule import DataModule, _apply_prescale
+from pyqit.core.trainer import PipelineReporter, Trainer
+from pyqit.data.datamodule import DataModule
+from pyqit.data.utils import _apply_prescale
 from pyqit.utils.utils import (
     _cat,
     _count_params,
     _ensure_col,
+    _hard_labels,
     _is_classifier,
     _is_torch,
     _mean,
@@ -378,30 +379,28 @@ class QuantumPipeline(BaseMetaObject):
 
         datamodule.setup(batch_size=trainer.batch_size)
 
-        verbose = trainer.verbose
+        reporter = PipelineReporter(verbose=trainer.verbose)
         sequential = self.mode == "sequential"
-        self._print_pipeline_summary(verbose)
+        self._print_pipeline_summary(reporter)
 
         if sequential and self.fit_mode == "joint":
-            with self._quiet_stage_summary(trainer):
-                return trainer._fit_model(self, datamodule)
+            return trainer._fit_model(self, datamodule, show_summary=False)
 
         dm = datamodule
         histories = {}
         for i, (name, stage) in enumerate(self.steps):
             if stage.trainable:
-                histories[name] = self._fit_stage(i, dm, trainer, verbose)
+                histories[name] = self._fit_stage(i, dm, trainer, reporter)
             if sequential and i < len(self.steps) - 1:
                 dm = self._transform_datamodule(dm, stage)
 
         return histories
 
-    def _fit_stage(self, idx, dm, trainer, verbose):
+    def _fit_stage(self, idx, dm, trainer, reporter):
         name, stage = self.steps[idx]
         stage_dm = self._stage_datamodule(dm, stage)
-        self._announce_stage(verbose, idx, name)
-        with self._quiet_stage_summary(trainer):
-            return trainer.fit(stage.model, stage_dm)
+        reporter.announce_stage(idx, len(self.steps), name)
+        return trainer._fit_model(stage.model, stage_dm, show_summary=False)
 
     def _stage_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
         """Slice and prescale ``dm`` into the view ``stage`` actually consumes."""
@@ -409,10 +408,10 @@ class QuantumPipeline(BaseMetaObject):
 
     def _transform_datamodule(self, dm: DataModule, stage: PipelineStage) -> DataModule:
         """Run ``stage`` over every split of the unprescaled ``dm``."""
-        return dm._map_features(lambda X: self._transform_split(stage, X, dm._backend))
+        return dm._map_features(lambda X: self._transform_split(stage, X))
 
-    def _transform_split(self, stage, X, backend):
-        if backend != "torch" and not _is_torch(X):
+    def _transform_split(self, stage, X):
+        if stage.model.backend != "torch" and not _is_torch(X):
             return self._run_stage(stage, X)
 
         import torch
@@ -464,32 +463,10 @@ class QuantumPipeline(BaseMetaObject):
         out = self._forward_ensemble(X)
         if self.aggregation == "vote" or not _is_classifier(self):
             return out
-        if out.ndim > 1 and out.shape[1] > 1:
-            return out.argmax(1)
-        labels = out >= 0.5
-        return labels.int() if _is_torch(labels) else labels.astype(int)
+        return _hard_labels(out)
 
-    @staticmethod
-    @contextmanager
-    def _quiet_stage_summary(trainer):
-        """Suppress a stage trainer's per-model summary for the duration of a fit.
-
-        The pipeline prints one summary that names every stage; the trainer's own
-        table would repeat it once per stage without saying which stage it is.
-        Restored afterwards so a trainer reused outside the pipeline is unchanged.
-        """
-        previous = getattr(trainer, "_print_summary", True)
-        trainer._print_summary = False
-        try:
-            yield
-        finally:
-            trainer._print_summary = previous
-
-    def _print_pipeline_summary(self, verbose: int):
+    def _print_pipeline_summary(self, reporter: PipelineReporter):
         """Print the pipeline structure once, in place of N per-model tables."""
-        if verbose < 2:
-            return
-
         header = f"QuantumPipeline | mode={self.mode} | stages={len(self.steps)}"
         if self.mode == "ensemble":
             header += f" | aggregation={self.aggregation}"
@@ -508,40 +485,7 @@ class QuantumPipeline(BaseMetaObject):
             for i, (name, stage) in enumerate(self.steps)
         ]
         columns = ("#", "Stage", "Model", "Qubits", "Params", "Status")
-
-        if not has_rich():
-            print(f"\n[Pipeline] {header}")
-            widths = [
-                max(len(c), *(len(r[j]) for r in rows)) for j, c in enumerate(columns)
-            ]
-            fmt = "  ".join(f"{{:<{w}}}" for w in widths)
-            print("  " + fmt.format(*columns))
-            for row in rows:
-                print("  " + fmt.format(*row))
-            print()
-            return
-
-        from rich.table import Table
-
-        table = Table(show_header=True, header_style="bold cyan", box=None, title=None)
-        for column in columns:
-            table.add_column(column, style="bold" if column == "Stage" else None)
-        for row in rows:
-            table.add_row(*row)
-
-        console().print(f"[bold cyan][Pipeline][/bold cyan] {header}")
-        console().print(table)
-        console().print()
-
-    def _announce_stage(self, verbose: int, idx: int, name: str):
-        """Name the stage about to train, since its trainer no longer does."""
-        if verbose < 1:
-            return
-        label = f"[{idx + 1}/{len(self.steps)}] Fitting stage {name!r}"
-        if has_rich():
-            console().print(f"[bold cyan]{label}[/bold cyan]")
-        else:
-            print(label)
+        reporter.summary(header, columns, rows)
 
     def clone(self) -> "QuantumPipeline":
         """Return an independent copy: stages deep-copied, weights included."""

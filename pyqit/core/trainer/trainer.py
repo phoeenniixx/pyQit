@@ -13,7 +13,7 @@ from skbase.utils.dependencies import _check_soft_dependencies
 from pyqit.base.base_object import _PyQitObject
 from pyqit.core.callbacks import HistoryCallback, LoopState, ModelCheckpoint
 from pyqit.core.config import get_backend, set_seed
-from pyqit.core.trainer._reporting import Reporter
+from pyqit.core.trainer._reporting import ModelReporter
 from pyqit.core.trainer.history import TrainingHistory
 from pyqit.core.trainer.loops import get_training_loop
 from pyqit.data.datamodule import DataModule
@@ -68,7 +68,6 @@ class Trainer(_PyQitObject):
         Gradients sampled by the check. Each costs one circuit execution under
         backprop and ``1 + 2 * n_params`` under parameter-shift, which is what
         shot-based devices and hardware use. The result reports the count.
-        Gradient samples drawn by that check.
     backend_kwargs : dict, optional
         Forwarded verbatim to ``lightning.pytorch.Trainer`` on the torch
         backend. Rejected on pennylane, which has no underlying trainer.
@@ -112,7 +111,6 @@ class Trainer(_PyQitObject):
         super().__init__()
 
         self.backend = get_backend()
-        self._print_summary = True
 
     def fit(
         self, model: BaseModel | BaseMetaObject, datamodule: DataModule
@@ -137,23 +135,24 @@ class Trainer(_PyQitObject):
             return model._fit(datamodule, self)
         return self._fit_model(model, datamodule)
 
-    def _fit_model(self, model, datamodule: DataModule) -> TrainingHistory:
-        """Train anything exposing ``weights``, ``forward`` and ``update_weights``."""
+    def _fit_model(
+        self, model, datamodule: DataModule, show_summary: bool = True
+    ) -> TrainingHistory:
+        """Train anything exposing ``weights``, ``forward`` and ``update_weights``.
+
+        ``show_summary=False`` withholds the per-model table and banner;
+        ``QuantumPipeline`` passes it and prints one summary for every stage.
+        """
         if self.seed is not None:
             set_seed(self.seed)
 
-        loop = self._loop(show_summary=self._print_summary)
+        loop = self._loop(show_summary=show_summary)
         reporter = loop.reporter
 
         self._setup_data(model, datamodule, stage="fit")
-
-        if self._print_summary:
-            if self.verbose >= 2:
-                reporter.model_summary(
-                    model, datamodule, self.backend, self.optimizer, self.learning_rate
-                )
-            else:
-                reporter.banner(self.backend, self.learning_rate)
+        reporter.model_summary(
+            model, datamodule, self.backend, self.optimizer, self.learning_rate
+        )
 
         if self.check_bp:
             self._run_bp_diagnostic(model, datamodule)
@@ -221,7 +220,7 @@ class Trainer(_PyQitObject):
             return loop.evaluate(model, datamodule, split)
 
     def _loop(self, show_summary: bool):
-        reporter = Reporter(
+        reporter = ModelReporter(
             verbose=self.verbose, max_epochs=self.max_epochs, show_summary=show_summary
         )
         return get_training_loop(self.backend, trainer=self, reporter=reporter)
@@ -251,18 +250,11 @@ class Trainer(_PyQitObject):
         numpy.ndarray or torch.Tensor
             Predictions for every sample in the chosen split.
         """
-        import pennylane.numpy as pnp
-
         self._setup_data(model, datamodule, stage="predict")
 
         loader = self._predict_loader(datamodule)
-        all_preds = []
-
         with self._inference_context():
-            for X_batch, _ in loader:
-                if self.backend == "pennylane":
-                    X_batch = pnp.array(X_batch, requires_grad=False)
-                all_preds.append(model.predict_step(X_batch))
+            all_preds = [model.predict_step(X_batch) for X_batch, _ in loader]
 
         if not all_preds:
             return np.array([])
@@ -369,10 +361,6 @@ class Trainer(_PyQitObject):
                 [p if _is_torch(p) else torch.as_tensor(p) for p in all_preds], dim=0
             )
         elif target in ("numpy", "pennylane"):
-            # Both share this merge: a batch can be a torch tensor, a pnp
-            # tensor or a mid-trace ArrayBox depending on backend, and
-            # "pennylane" only needs one extra wrap over the merged result
-            # rather than repeating that per-batch normalisation itself.
             merged = np.concatenate(
                 [
                     p.detach().cpu().numpy() if _is_torch(p) else np.asarray(p)

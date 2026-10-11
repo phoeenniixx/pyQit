@@ -165,24 +165,14 @@ class _LightningDataAdapter(LightningDataModule):
     Parameters
     ----------
     pyqit_dm : DataModule
-        Supplies the split arrays and every loader setting -- ``batch_size``,
-        ``num_workers``, ``shuffle``, ``drop_last`` -- so it is the only place
-        to configure them.
+        Builds every loader, so it is the only place to configure them. Its
+        loaders raise if it is not set up, so Lightning never sees unprescaled
+        data.
     """
 
     def __init__(self, pyqit_dm):
         super().__init__()
         self.dm = pyqit_dm
-
-    def setup(self, stage=None):
-        """Check the wrapped DataModule is ready."""
-        if not self.dm._is_setup:
-            raise RuntimeError(
-                "The wrapped DataModule is not set up. Call pyqit's "
-                "Trainer.fit, or DataModule.setup(n_qubits=..., encoder=...) "
-                "with the values your model implies, before handing the "
-                "adapter to a Lightning Trainer."
-            )
 
     def train_dataloader(self):
         """Loader over the training split."""

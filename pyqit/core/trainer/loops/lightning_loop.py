@@ -1,8 +1,21 @@
 """Torch backend loop: delegates to ``lightning.pytorch.Trainer``."""
 
+from contextlib import contextmanager, nullcontext
 import logging
 
 from pyqit.core.trainer.loops.base import BaseTrainingLoop
+
+
+@contextmanager
+def _lightning_log_level(level: int):
+    """Hold the ``lightning.pytorch`` logger at ``level`` for the block."""
+    lit_logger = logging.getLogger("lightning.pytorch")
+    previous = lit_logger.level
+    lit_logger.setLevel(level)
+    try:
+        yield
+    finally:
+        lit_logger.setLevel(previous)
 
 
 class LightningLoop(BaseTrainingLoop):
@@ -47,8 +60,6 @@ class LightningLoop(BaseTrainingLoop):
 
     def fit(self, model, datamodule, state, callbacks: list) -> None:
         """Fit through Lightning. See ``BaseTrainingLoop.fit``."""
-        from contextlib import nullcontext
-
         self._require_lightning()
 
         from lightning.pytorch import Trainer as LightningTrainer
@@ -58,7 +69,6 @@ class LightningLoop(BaseTrainingLoop):
             _PyQitCallbackShim,
         )
         from pyqit.core.losses import get_loss_fn
-        from pyqit.core.trainer._reporting import lightning_log_level
 
         trainer = self.trainer
         extra = self._lightning_kwargs()
@@ -78,7 +88,7 @@ class LightningLoop(BaseTrainingLoop):
         has_val = datamodule.X_val is not None
 
         quiet = self.reporter.summary_suppressed
-        log_ctx = lightning_log_level(logging.WARNING) if quiet else nullcontext()
+        log_ctx = _lightning_log_level(logging.WARNING) if quiet else nullcontext()
 
         with log_ctx:
             pl_trainer = LightningTrainer(
@@ -104,7 +114,6 @@ class LightningLoop(BaseTrainingLoop):
 
         from pyqit.core.adapters.lightning import _LightningModelAdapter
         from pyqit.core.losses import get_loss_fn
-        from pyqit.core.trainer._reporting import lightning_log_level
 
         trainer = self.trainer
         loss_func = get_loss_fn(trainer.loss_fn, backend="torch")
@@ -112,7 +121,7 @@ class LightningLoop(BaseTrainingLoop):
             model, self._learning_rates(model), trainer.optimizer, loss_func
         )
 
-        with lightning_log_level(logging.WARNING):
+        with _lightning_log_level(logging.WARNING):
             pl_trainer = LightningTrainer(
                 logger=False,
                 enable_progress_bar=False,
