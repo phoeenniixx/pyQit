@@ -29,12 +29,17 @@ the set is the same whatever the global state.
 Quantum benchmarks
 ==================
 
-``make_linearly_separable``, ``make_two_curves``, ``make_hidden_manifold`` and
-``make_hyperplanes_parity`` are the classification benchmarks of Bowles, Ahmed
-and Schuld, *Better than classical? The subtle art of benchmarking quantum
-machine learning models* (2024). Each takes ``n_features`` so it maps straight
-onto ``n_qubits``. They are reimplemented from the authors' ``qml-benchmarks``
+``make_linearly_separable``, ``make_two_curves``, ``make_hidden_manifold``,
+``make_hyperplanes_parity`` and ``make_bars_and_stripes`` are the classification
+benchmarks of Bowles, Ahmed and Schuld, *Better than classical? The subtle art
+of benchmarking quantum machine learning models* (2024). The first four take
+``n_features`` so it maps straight onto ``n_qubits``; bars and stripes returns
+flattened images. They are reimplemented from the authors' ``qml-benchmarks``
 package; the paper's own pre-generated copies are on PennyLane's datasets site.
+
+``make_ad_hoc`` is the set of Havlíček et al., *Supervised learning with
+quantum-enhanced feature spaces* (2019), labelled through the ZZ feature map
+itself, so :class:`~pyqit.core.ZZFeatureMap` separates it by construction.
 
 Available datasets
 ==================
@@ -47,6 +52,8 @@ Available datasets
    make_two_curves
    make_hidden_manifold
    make_hyperplanes_parity
+   make_bars_and_stripes
+   make_ad_hoc
    make_moons
    make_circles
    make_sine

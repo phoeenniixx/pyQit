@@ -7,6 +7,8 @@ from sklearn.utils import check_random_state
 __all__ = [
     "load_iris",
     "load_wine",
+    "make_ad_hoc",
+    "make_bars_and_stripes",
     "make_circles",
     "make_hidden_manifold",
     "make_hyperplanes_parity",
@@ -24,9 +26,8 @@ def _standardize(X):
 def make_linearly_separable(n_samples=300, n_features=4, margin=None, seed=None):
     """Generate points in the hypercube ``[-1, 1]^d`` that a hyperplane separates.
 
-    Rows are drawn uniformly and labelled by the sign of ``sum(x)``; any row
-    closer than ``margin`` to the hyperplane ``sum(x) = 0`` is redrawn, so the
-    two classes are divided by an empty band.
+    Rows are drawn uniformly and labelled by the sign of ``sum(x)``. Any row
+    closer than ``margin`` to the hyperplane ``sum(x) = 0`` is redrawn.
 
     Parameters
     ----------
@@ -76,7 +77,7 @@ def make_two_curves(
     """Generate two classes that lie on the same random curve, one shifted.
 
     A one-dimensional curve is embedded in ``n_features`` dimensions by giving
-    every feature its own random Fourier series. Both classes sample that curve;
+    every feature its own random Fourier series. Both classes sample that curve and
     the second is shifted by ``offset`` along every axis.
 
     Parameters
@@ -243,6 +244,134 @@ def make_hyperplanes_parity(
     y = np.r_[np.ones(half, dtype=int), np.zeros(half, dtype=int)]
     X = Z @ rng.uniform(size=(dim_hyperplanes, n_features))
     return _standardize(X), y
+
+
+def make_bars_and_stripes(
+    n_samples=300, height=4, width=4, noise=0.5, flatten=True, seed=None
+):
+    """Generate noisy images of horizontal stripes or vertical bars.
+
+    Each image starts at ``-1``. A random subset of its rows (a stripe image)
+    or of its columns (a bar image) is set to ``1``, then Gaussian noise is
+    added to every pixel.
+
+    Parameters
+    ----------
+    n_samples : int, default 300
+    height, width : int, default 4
+    noise : float, default 0.5
+        Standard deviation of the Gaussian pixel noise.
+    flatten : bool, default True
+        Return one row of ``height * width`` pixels per image, the shape
+        ``DataModule`` takes. ``False`` keeps the images as
+        ``(n_samples, 1, height, width)`` with a channel axis.
+    seed : int or numpy RandomState, optional
+        ``None`` uses numpy's global state, which ``pyqit.set_seed`` seeds.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, height * width) or (n_samples, 1, height, width)
+    y : ndarray of shape (n_samples,)
+        ``1`` for stripes, ``0`` for bars.
+
+    References
+    ----------
+    [1] Bowles, Ahmed, Schuld, "Better than classical? The subtle art of
+    benchmarking quantum machine learning models", arXiv:2403.07059 (2024).
+
+    [2] ``qml_benchmarks.data.generate_bars_and_stripes`` in
+    https://github.com/XanaduAI/qml-benchmarks (Apache License 2.0), the
+    reference implementation this follows.
+
+    Examples
+    --------
+    >>> from pyqit.datasets import make_bars_and_stripes
+    >>> X, y = make_bars_and_stripes(n_samples=100, height=4, width=4, seed=0)
+    >>> X.shape, sorted(set(y.tolist()))
+    ((100, 16), [0, 1])
+    """
+    rng = check_random_state(seed)
+    stripes = rng.uniform(size=n_samples) > 0.5
+    rows = rng.uniform(size=(n_samples, height, 1)) > 0.5
+    cols = rng.uniform(size=(n_samples, 1, width)) > 0.5
+    lit = np.where(stripes[:, None, None], rows, cols)
+    X = np.where(np.broadcast_to(lit, (n_samples, height, width)), 1.0, -1.0)
+    X = X + rng.normal(scale=noise, size=X.shape)
+    X = X.reshape(n_samples, -1) if flatten else X[:, None]
+    return X, stripes.astype(int)
+
+
+def make_ad_hoc(n_samples=100, n_features=2, gap=0.3, seed=None):
+    """Generate the ad hoc set that the ZZ feature map separates exactly.
+
+    Inputs are drawn uniformly in ``[0, 2 pi)^n``. Each is mapped to the state
+    ``U(x) H U(x) H |0>`` of the second-order Pauli-Z feature map with full
+    entanglement, and labelled by the sign of ``<V^dag Z^n V>`` in that state for
+    one random unitary ``V`` drawn per call. Inputs whose expectation lies within
+    ``gap`` of zero are rejected, so the classes are separated by a margin.
+
+    Parameters
+    ----------
+    n_samples : int, default 100
+    n_features : int, default 2
+        One feature per qubit. The state has ``2 ** n_features`` amplitudes, so
+        keep this small.
+    gap : float, default 0.3
+        Rejection band around zero expectation.
+    seed : int or numpy RandomState, optional
+        ``None`` uses numpy's global state, which ``pyqit.set_seed`` seeds.
+
+    Returns
+    -------
+    X : ndarray of shape (n_samples, n_features)
+    y : ndarray of shape (n_samples,)
+        ``1`` where the expectation is positive, else ``0``.
+
+    References
+    ----------
+    [1] Havlicek, Corcoles, Temme, Harrow, Kandala, Chow, Gambetta, "Supervised
+    learning with quantum-enhanced feature spaces", Nature 567, 209 (2019).
+
+    [2] ``qiskit_machine_learning.datasets.ad_hoc_data`` in
+    https://github.com/qiskit-community/qiskit-machine-learning (Apache
+    License 2.0), the reference implementation this follows.
+
+    Examples
+    --------
+    >>> from pyqit.datasets import make_ad_hoc
+    >>> X, y = make_ad_hoc(n_samples=50, n_features=2, seed=0)
+    >>> X.shape, sorted(set(y.tolist()))
+    ((50, 2), [0, 1])
+    """
+    rng = check_random_state(seed)
+    dim = 2**n_features
+    bits = (np.arange(dim)[:, None] >> np.arange(n_features)[::-1]) & 1
+    z = 1.0 - 2.0 * bits
+    parity = z.prod(axis=1)
+    hadamard = np.array([[1.0, 1.0], [1.0, -1.0]]) / np.sqrt(2)
+    H = np.array([[1.0]])
+    for _ in range(n_features):
+        H = np.kron(H, hadamard)
+    Q, R = np.linalg.qr(rng.normal(size=(dim, dim)) + 1j * rng.normal(size=(dim, dim)))
+    V = Q * (np.diag(R) / np.abs(np.diag(R)))
+    O = V.conj().T @ (parity[:, None] * V)
+
+    def expectation(X):
+        P = np.pi - X
+        phase = X @ z.T + 0.5 * ((P @ z.T) ** 2 - (P**2).sum(axis=1)[:, None])
+        U = np.exp(-1j * phase)
+        psi = U * ((U / np.sqrt(dim)) @ H)
+        return np.real(np.einsum("ij,ij->i", psi.conj(), psi @ O.T))
+
+    rows, labels = [], []
+    while sum(len(r) for r in rows) < n_samples:
+        X = rng.uniform(0, 2 * np.pi, size=(2 * n_samples, n_features))
+        value = expectation(X)
+        keep = np.abs(value) > gap
+        rows.append(X[keep])
+        labels.append(value[keep] > 0)
+    X = np.concatenate(rows)[:n_samples]
+    return X, np.concatenate(labels)[:n_samples].astype(int)
 
 
 def make_sine(n_samples=80, noise=0.0, seed=None):
