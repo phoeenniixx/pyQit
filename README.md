@@ -43,16 +43,15 @@ its own.
 ## Quickstart
 
 ```python
-from sklearn.datasets import make_moons
-
 import pyqit
 from pyqit.ansatzes import SELAnsatz
 from pyqit.core import AngleEmbedding
+from pyqit.datasets import make_moons
 from pyqit.models import VQCClassifier
 
 pyqit.set_seed(42)
 
-X, y = make_moons(n_samples=200, noise=0.1, random_state=0)
+X, y = make_moons(n_samples=200, noise=0.1, seed=0)
 
 # Nothing is split, normalized or prescaled until the Trainer calls setup().
 dm = pyqit.DataModule(X, y, normalize="minmax", batch_size=16)
