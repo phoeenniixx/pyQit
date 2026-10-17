@@ -11,6 +11,7 @@ filterable table.
 
    api/trainer
    api/datamodule
+   api/datasets
    api/models
    api/layers
    api/ansatzes

@@ -12,9 +12,9 @@ which is why properties like ``X_train`` raise before then.
 .. code-block:: python
 
    import pyqit
-   from sklearn.datasets import make_moons
+   from pyqit.datasets import make_moons
 
-   X, y = make_moons(n_samples=200, noise=0.1, random_state=0)
+   X, y = make_moons(n_samples=200, noise=0.1, seed=0)
    dm = pyqit.DataModule(X, y, normalize="minmax", batch_size=16)
 
 What setup does, in order
