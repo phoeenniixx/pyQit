@@ -1,10 +1,5 @@
-import logging
-
 import numpy as np
 import pennylane as qml
-
-logger = logging.getLogger("pyqit.diagnostics")
-logger.setLevel(logging.INFO)
 
 
 def _is_torch(x) -> bool:

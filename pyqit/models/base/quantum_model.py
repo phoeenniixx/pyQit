@@ -4,6 +4,7 @@ import pennylane as qml
 import pennylane.numpy as pnp
 from skbase.utils.dependencies import _check_soft_dependencies
 
+from pyqit.core.config import _torch_dtype
 from pyqit.models.base.base import BaseModel
 
 
@@ -86,7 +87,7 @@ class BaseQuantumModel(BaseModel):
             import torch
 
             init = {
-                w: torch.tensor(pnp.asarray(v), dtype=torch.get_default_dtype())
+                w: torch.tensor(pnp.asarray(v), dtype=_torch_dtype())
                 for w, v in weights.items()
             }
             torch_layer = qml.qnn.TorchLayer(qnode, weight_shapes, init_method=init)

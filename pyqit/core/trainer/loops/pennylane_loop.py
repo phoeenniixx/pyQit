@@ -142,7 +142,8 @@ class PennyLaneLoop(BaseTrainingLoop):
         name = trainer.optimizer
         name = name.lower() if isinstance(name, str) else name
         if name == "adam":
-            return qml.AdamOptimizer(stepsize=stepsize)
+            # should we ask the user about beta2? not sure, hardcoding for now
+            return qml.AdamOptimizer(stepsize=stepsize, beta2=0.999)
         return qml.GradientDescentOptimizer(stepsize=stepsize)
 
     @staticmethod

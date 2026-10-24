@@ -1,7 +1,19 @@
 from abc import abstractmethod
 
+import pennylane as qml
+
 from pyqit.base.base_object import _PyQitObject
 from pyqit.core.config import get_backend
+
+
+def _require_same_shape(name, preds, targets):
+    p, t = tuple(qml.math.shape(preds)), tuple(qml.math.shape(targets))
+    if p != t:
+        raise ValueError(
+            f"Loss {name!r} needs predictions and targets of the same shape, "
+            f"got {p} and {t}. A multi-column output scored against class "
+            "indices needs a multi-target loss, such as loss_fn='cross_entropy'."
+        )
 
 
 class BaseLoss(_PyQitObject):

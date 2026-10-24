@@ -429,11 +429,15 @@ def _resolve_input(datamodule_or_X, y, model):
             if datamodule_or_X.y_val is not None
             else datamodule_or_X.y_train
         )
-        return np.asarray(X_data[:32]), np.asarray(y_data[:32])
-
-    if y is None:
+        X, y = np.asarray(X_data[:32]), np.asarray(y_data[:32])
+    elif y is None:
         raise ValueError("y must be provided when datamodule_or_X is a raw array.")
-    return np.asarray(datamodule_or_X)[:32], np.asarray(y)[:32]
+    else:
+        X, y = np.asarray(datamodule_or_X)[:32], np.asarray(y)[:32]
+
+    if len(X) == 0:
+        raise ValueError("check_barren_plateau needs at least one input row, got 0.")
+    return X, y
 
 
 def _split_weight_keys(model):

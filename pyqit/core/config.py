@@ -9,6 +9,7 @@ logger = logging.getLogger("pyqit")
 _BACKEND: ContextVar[str] = ContextVar("backend", default="pennylane")
 _EXPLICITLY_SET: ContextVar[bool] = ContextVar("explicitly_set", default=False)
 _WARNED_UNSET: ContextVar[bool] = ContextVar("warned_unset", default=False)
+_DTYPE: ContextVar[str] = ContextVar("dtype", default="float64")
 
 
 def set_backend(backend: str):
@@ -79,6 +80,44 @@ def set_seed(seed: int) -> int:
 
     logger.info(f"Seeded {' and '.join(seeded)} with {seed}.")
     return seed
+
+
+def set_dtype(dtype: str):
+    """Set the floating-point precision for the current context.
+
+    Parameters
+    ----------
+    dtype : {"float64", "float32"}
+        Precision of the weights, loaders and inputs built afterwards on the
+        torch backend. Read at construction, like the backend, so set it
+        before building a model.
+
+    Raises
+    ------
+    ValueError
+        If ``dtype`` is not a supported name.
+
+    Notes
+    -----
+    ``"float32"`` is applied in torch only. ``default.qubit`` computes in
+    float64 whatever its inputs are, so a model built on the pennylane backend
+    under ``"float32"`` raises.
+    """
+    dtype = dtype.lower()
+    if dtype not in ["float64", "float32"]:
+        raise ValueError(f"Unsupported dtype '{dtype}'.")
+    _DTYPE.set(dtype)
+
+
+def get_dtype() -> str:
+    """Get the floating-point precision for the current context."""
+    return _DTYPE.get()
+
+
+def _torch_dtype():
+    import torch
+
+    return getattr(torch, get_dtype())
 
 
 def get_backend() -> str:
