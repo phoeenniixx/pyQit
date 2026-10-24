@@ -52,6 +52,24 @@ Weights are drawn at construction, so reproducing them means seeding first:
 initialisation. Note that this mutates global RNG state, the same contract as
 Lightning's ``seed_everything``.
 
+Precision
+=========
+
+:func:`set_dtype` picks ``"float64"`` (the default) or ``"float32"``. Like the
+backend, it is read at construction, so set it before building a model.
+
+Only torch honours ``"float32"``. ``default.qubit`` computes in float64 whatever
+it is given, so building a model on the pennylane backend under ``"float32"``
+raises instead of quietly running in double precision. At the default, both
+backends give the same loss curve for one seed. ``torch.set_default_dtype`` is
+not read.
+
+.. code-block:: python
+
+   pyqit.set_backend("torch")
+   pyqit.set_dtype("float32")
+   model = VQCClassifier(n_qubits=4)
+
 Related
 =======
 
@@ -65,4 +83,6 @@ same setting.
 
    set_backend
    get_backend
+   set_dtype
+   get_dtype
    set_seed

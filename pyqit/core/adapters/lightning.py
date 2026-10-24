@@ -184,7 +184,13 @@ class _LightningDataAdapter(LightningDataModule):
 
     def test_dataloader(self):
         """Loader over the test split."""
-        return self.dm.test_loader()
+        loader = self.dm.test_loader()
+        if loader is None:
+            raise ValueError(
+                "This DataModule has no test split. Give DataModule(split=...) "
+                "a non-zero fraction for it."
+            )
+        return loader
 
 
 class _PyQitCallbackShim(Callback):

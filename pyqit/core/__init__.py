@@ -6,7 +6,7 @@ from pyqit.core.callbacks import (
     HistoryCallback,
     ModelCheckpoint,
 )
-from pyqit.core.config import get_backend, set_backend, set_seed
+from pyqit.core.config import get_backend, get_dtype, set_backend, set_dtype, set_seed
 from pyqit.core.embeddings import (
     AmplitudeEmbedding,
     AngleEmbedding,
@@ -53,6 +53,8 @@ __all__ = [
     "EarlyStopping",
     "set_backend",
     "get_backend",
+    "set_dtype",
+    "get_dtype",
     "set_seed",
     "QuantumPipeline",
     "PipelineStage",

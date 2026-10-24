@@ -1,6 +1,6 @@
 import pennylane.numpy as pnp
 
-from pyqit.core.losses.base import BaseLoss
+from pyqit.core.losses.base import BaseLoss, _require_same_shape
 
 
 def hinge_loss(preds, targets):
@@ -34,11 +34,13 @@ class HingeLoss(BaseLoss):
     _tags = {"name": "hinge"}
 
     def _pennylane(self, preds, targets):
+        _require_same_shape("hinge", preds, targets)
         return hinge_loss(preds, targets)
 
     def _torch(self, preds, targets):
         import torch
 
+        _require_same_shape("hinge", preds, targets)
         y_signed = 2.0 * targets.to(preds.dtype) - 1.0
         scores = 2.0 * preds - 1.0
         return torch.clamp(1.0 - y_signed * scores, min=0.0).mean()

@@ -3,6 +3,7 @@ import copy
 import numpy as np
 from skbase.base import BaseMetaObject
 
+from pyqit.core.config import _torch_dtype
 from pyqit.core.trainer import PipelineReporter, Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.data.utils import _apply_prescale
@@ -417,7 +418,7 @@ class QuantumPipeline(BaseMetaObject):
         import torch
 
         if not _is_torch(X):
-            X = torch.as_tensor(np.asarray(X), dtype=torch.get_default_dtype())
+            X = torch.as_tensor(np.asarray(X), dtype=_torch_dtype())
         with torch.no_grad():
             out = self._run_stage(stage, X)
         return out.detach() if _is_torch(out) else out

@@ -3,6 +3,8 @@ from collections.abc import Callable
 import numpy as np
 import pennylane as qml
 
+from pyqit.core.config import _torch_dtype
+
 
 def _as_2d(X):
     X = np.asarray(X, dtype=np.float64)
@@ -85,8 +87,8 @@ def _make_torch_loader(
 
     class _DS(Dataset):
         def __init__(self, X, y):
-            self.X = torch.as_tensor(X, dtype=torch.get_default_dtype())
-            self.y = torch.as_tensor(y, dtype=torch.get_default_dtype())
+            self.X = torch.as_tensor(X, dtype=_torch_dtype())
+            self.y = torch.as_tensor(y, dtype=_torch_dtype())
 
         def __len__(self):
             return len(self.X)

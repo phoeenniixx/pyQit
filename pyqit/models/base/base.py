@@ -4,7 +4,7 @@ import pennylane.numpy as pnp
 from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.base import _PyQitObject
-from pyqit.core.config import get_backend
+from pyqit.core.config import _torch_dtype, get_backend, get_dtype
 from pyqit.utils.utils import _qnode_of
 
 
@@ -28,6 +28,12 @@ class BaseModel(_PyQitObject):
 
     def __init__(self):
         self.backend = get_backend()
+        if self.backend == "pennylane" and get_dtype() != "float64":
+            raise ValueError(
+                f"dtype {get_dtype()!r} is honoured on the torch backend only. "
+                "default.qubit computes in float64 whatever its inputs are. "
+                "Call pyqit.set_dtype('float64') or pyqit.set_backend('torch')."
+            )
         self._qnodes = {}
 
     @abstractmethod
@@ -57,7 +63,7 @@ class BaseModel(_PyQitObject):
         ):
             import torch
 
-            layer = torch.nn.Linear(n_in, n_out)
+            layer = torch.nn.Linear(n_in, n_out, dtype=_torch_dtype())
             with torch.no_grad():
                 for w_name, value in weights.items():
                     getattr(layer, w_name).copy_(torch.as_tensor(pnp.asarray(value)))
