@@ -145,6 +145,35 @@ sample even at ``shots=None``, where they run 1024 shots, so expect
 parameter-shift and shot noise there. No real QPU has been run against pyqit
 yet.
 
+``device_kwargs=`` passes the rest of ``qml.device``'s arguments, the ones a
+device name can't carry: a seed, a simulation method, a bond dimension. Every
+model takes it, and ``make_device`` builds the device from it for a model of
+your own. The ``default.tensor`` example below needs ``pip install quimb``.
+
+.. code-block:: python
+
+   seeded = VQCClassifier(n_qubits=4, shots=1024, device_kwargs={"seed": 7})
+
+   mps = VQCClassifier(
+       n_qubits=32,
+       device="default.tensor",
+       device_kwargs={"method": "mps", "max_bond_dim": 64},
+   )
+
+Any installed plugin works the same way. With ``pip install pennylane-maestro``,
+for example:
+
+.. code-block:: python
+
+   model = VQCClassifier(
+       n_qubits=32,
+       device="maestro.qubit",
+       device_kwargs={
+           "simulation_type": "MatrixProductState",
+           "max_bond_dimension": 64,
+       },
+   )
+
 Writing a new model
 ===================
 
