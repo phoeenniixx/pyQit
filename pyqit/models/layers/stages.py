@@ -118,6 +118,9 @@ class QuantumLayer(BaseVQC):
     diff_method : str, default "best"
         Passed to the QNode. ``"best"`` picks backprop on a simulator;
         ``"parameter-shift"`` rehearses a hardware run's gradient cost.
+    device_kwargs : dict, optional
+        Extra keyword arguments for ``qml.device``, such as
+        ``{"method": "mps", "max_bond_dim": 64}`` for ``default.tensor``.
 
     Examples
     --------
@@ -136,6 +139,7 @@ class QuantumLayer(BaseVQC):
         device="default.qubit",
         shots=None,
         diff_method="best",
+        device_kwargs=None,
     ):
         super().__init__(
             n_qubits=n_qubits,
@@ -145,6 +149,7 @@ class QuantumLayer(BaseVQC):
             device=device,
             shots=shots,
             diff_method=diff_method,
+            device_kwargs=device_kwargs,
         )
         self._z_from_probs = z_from_probs(n_qubits)
 

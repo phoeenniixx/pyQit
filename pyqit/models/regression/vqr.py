@@ -39,6 +39,9 @@ class VQCRegressor(BaseVQC, RegressorMixin):
     diff_method : str, default "best"
         Passed to the QNode. ``"best"`` picks backprop on a simulator;
         ``"parameter-shift"`` rehearses a hardware run's gradient cost.
+    device_kwargs : dict, optional
+        Extra keyword arguments for ``qml.device``, such as
+        ``{"method": "mps", "max_bond_dim": 64}`` for ``default.tensor``.
 
     References
     ----------
@@ -65,6 +68,7 @@ class VQCRegressor(BaseVQC, RegressorMixin):
         device="default.qubit",
         shots=None,
         diff_method="best",
+        device_kwargs=None,
     ):
         self.output_scale = output_scale
         super().__init__(
@@ -77,6 +81,7 @@ class VQCRegressor(BaseVQC, RegressorMixin):
             device=device,
             shots=shots,
             diff_method=diff_method,
+            device_kwargs=device_kwargs,
         )
         if output_scale:
             identity = {

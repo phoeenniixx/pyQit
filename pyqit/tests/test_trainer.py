@@ -527,6 +527,25 @@ def test_qiskit_simulators_train_and_agree_with_default_qubit_within_shot_noise(
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_device_kwargs_reach_the_device_and_survive_clone(backend):
+    """A device seed fixes the shot noise, so only it can tell the runs apart."""
+    _require(backend)
+    X = _dm().setup(n_qubits=3).X_train[:4]
+    if backend == "torch":
+        import torch
+
+        X = torch.as_tensor(X)
+
+    def sampled(seed):
+        model = _model(shots=100, device_kwargs={"seed": seed}).clone()
+        assert model.device_kwargs == {"seed": seed}
+        return _to_numpy(model.forward(X))
+
+    np.testing.assert_array_equal(sampled(7), sampled(7))
+    assert not np.array_equal(sampled(7), sampled(8))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("device", SIMULATORS[1:])
 def test_same_seed_gives_the_same_starting_weights_on_every_simulator(backend, device):
     """Devices draw from numpy's RNG at construction, so weights come first."""

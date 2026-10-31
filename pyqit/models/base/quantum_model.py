@@ -26,11 +26,28 @@ class BaseQuantumModel(BaseModel):
         device="default.qubit",
         shots=None,
         diff_method="best",
+        device_kwargs=None,
     ):
         super().__init__()
         self.device = device
         self.shots = shots
         self.diff_method = diff_method
+        self.device_kwargs = device_kwargs
+
+    def make_device(self, wires):
+        """Build ``qml.device(self.device, wires=wires, **self.device_kwargs)``.
+
+        Call this after `init_weights`; see its note on the RNG.
+
+        Parameters
+        ----------
+        wires : int or iterable
+
+        Returns
+        -------
+        qml.devices.Device
+        """
+        return qml.device(self.device, wires=wires, **(self.device_kwargs or {}))
 
     def get_interface(self):
         """PennyLane QNode interface for the active backend."""

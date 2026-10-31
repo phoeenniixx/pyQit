@@ -50,6 +50,9 @@ class BaseVQC(BaseQuantumModel):
     diff_method : str, default "best"
         Passed to the QNode. ``"best"`` picks backprop on a simulator;
         ``"parameter-shift"`` rehearses a hardware run's gradient cost.
+    device_kwargs : dict, optional
+        Extra keyword arguments for ``qml.device``, such as
+        ``{"method": "mps", "max_bond_dim": 64}`` for ``default.tensor``.
     """
 
     def __init__(
@@ -63,6 +66,7 @@ class BaseVQC(BaseQuantumModel):
         device="default.qubit",
         shots=None,
         diff_method="best",
+        device_kwargs=None,
     ):
         if not inspect.isclass(ansatz):
             raise TypeError(
@@ -76,7 +80,12 @@ class BaseVQC(BaseQuantumModel):
                 f"got {type(encoder).__name__}"
             )
 
-        super().__init__(device=device, shots=shots, diff_method=diff_method)
+        super().__init__(
+            device=device,
+            shots=shots,
+            diff_method=diff_method,
+            device_kwargs=device_kwargs,
+        )
 
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -97,7 +106,7 @@ class BaseVQC(BaseQuantumModel):
         self.weight_keys = list(weight_shapes.keys())
         init_weights = self.init_weights(weight_shapes)
 
-        dev = qml.device(self.device, wires=self.n_qubits)
+        dev = self.make_device(self.n_qubits)
         primary_qnode = qml.set_shots(
             qml.QNode(
                 self._circuit,

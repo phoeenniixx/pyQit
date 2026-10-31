@@ -31,6 +31,9 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
         Passed to the QNode. ``"best"`` picks backprop on a simulator;
         ``"parameter-shift"`` rehearses a hardware run's gradient cost.
         `None` runs analytic (infinite-shot) simulation.
+    device_kwargs : dict, optional
+        Extra keyword arguments for ``qml.device``, such as
+        ``{"method": "mps", "max_bond_dim": 64}`` for ``default.tensor``.
 
     References
     ----------
@@ -57,6 +60,7 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
         device="default.qubit",
         shots=None,
         diff_method="best",
+        device_kwargs=None,
     ):
         self.n_classes = n_classes
         super().__init__(
@@ -69,6 +73,7 @@ class VQCClassifier(BaseVQC, ClassifierMixin):
             device=device,
             shots=shots,
             diff_method=diff_method,
+            device_kwargs=device_kwargs,
         )
 
     def __repr__(self):
