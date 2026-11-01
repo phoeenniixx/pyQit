@@ -70,8 +70,8 @@ def test_noiseless_bars_and_stripes_are_constant_along_the_labelled_axis():
     X, y = make_bars_and_stripes(
         n_samples=60, height=3, width=5, noise=0, flatten=False, seed=0
     )
-    assert X.shape == (60, 1, 3, 5)
-    images = X[:, 0]
+    assert X.shape == (60, 3, 5, 1)
+    images = X[..., 0]
     rows_constant = (images == images[:, :, :1]).all(axis=(1, 2))
     cols_constant = (images == images[:, :1, :]).all(axis=(1, 2))
     assert rows_constant[y == 1].all() and cols_constant[y == 0].all()

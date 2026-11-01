@@ -186,12 +186,12 @@ class QuantumPipeline(BaseMetaObject):
 
     @staticmethod
     def _slice_input(X, input_slice):
-        """Select ``input_slice`` columns from ``X``, always returning 2-D."""
+        """Select ``input_slice`` from the feature axis, keeping every axis."""
         if X is None or input_slice is None:
             return X
         if isinstance(input_slice, (int, np.integer)):
-            return X[:, [int(input_slice)]]
-        return X[:, input_slice]
+            return X[..., [int(input_slice)]]
+        return X[..., input_slice]
 
     @staticmethod
     def _prescale_of(model):
@@ -223,7 +223,7 @@ class QuantumPipeline(BaseMetaObject):
         raw = self._slice_input(X, stage.input_slice)
         inp = self._prescale_for(stage, raw)
         out = _ensure_col(stage.model.forward(inp, **weights))
-        return _cat(raw, out) if stage.passthrough else out
+        return _cat(raw, out, axis=-1) if stage.passthrough else out
 
     def _run_sequential(self, X, labels=False, **custom_weights):
         current = X if _is_torch(X) else np.asarray(X)

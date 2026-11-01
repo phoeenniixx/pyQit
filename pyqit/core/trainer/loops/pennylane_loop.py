@@ -8,7 +8,7 @@ import pennylane.numpy as pnp
 
 from pyqit.core.losses import get_loss_fn
 from pyqit.core.trainer.loops.base import BaseTrainingLoop
-from pyqit.utils.utils import _hard_labels, _is_classifier
+from pyqit.utils.utils import _hard_labels, _has_one_label_per_row, _is_classifier
 
 
 class PennyLaneLoop(BaseTrainingLoop):
@@ -92,7 +92,7 @@ class PennyLaneLoop(BaseTrainingLoop):
                     batch_losses.append(float(batch_loss))
                     batch_sizes.append(len(y_batch))
 
-                    if is_classifier:
+                    if is_classifier and _has_one_label_per_row(y_batch):
                         y_true = np.asarray(y_batch).astype(int).flatten()
                         correct += np.sum(_hard_labels(captured["preds"]) == y_true)
                         total += len(y_true)
@@ -176,7 +176,7 @@ class PennyLaneLoop(BaseTrainingLoop):
             losses.append(float(loss_fn(preds, pnp.array(y_b, requires_grad=False))))
             sizes.append(len(y_b))
 
-            if is_classifier:
+            if is_classifier and _has_one_label_per_row(y_b):
                 y_true = y_b.astype(int).flatten()
                 correct += np.sum(_hard_labels(preds) == y_true)
                 total += len(y_true)

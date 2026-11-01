@@ -87,11 +87,15 @@ class _LightningModelAdapter(LightningModule):
     def _accuracy(self, preds, y):
         """Hard-label accuracy, using the shared cross-backend labelling rule.
 
-        NaN for a regressor, whose output has no labels to count.
+        NaN for a regressor or multi-column targets, which have no labels to count.
         """
-        from pyqit.utils.utils import _hard_labels, _is_classifier
+        from pyqit.utils.utils import (
+            _hard_labels,
+            _has_one_label_per_row,
+            _is_classifier,
+        )
 
-        if not _is_classifier(self.pyqit_model):
+        if not _is_classifier(self.pyqit_model) or not _has_one_label_per_row(y):
             return preds.new_tensor(float("nan"))
         labels = _hard_labels(preds)
         return (labels == y.long().flatten()).to(preds.dtype).mean()

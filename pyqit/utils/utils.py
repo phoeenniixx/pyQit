@@ -86,6 +86,11 @@ def _is_classifier(model) -> bool:
     return model.get_tag("estimator_type", None, raise_error=False) != "regressor"
 
 
+def _has_one_label_per_row(y) -> bool:
+    """Whether ``y`` holds a single value per sample, so accuracy can count it."""
+    return int(np.prod(tuple(qml.math.shape(y))[1:], dtype=int)) == 1
+
+
 def _count_params(model) -> int | None:
     """Total scalar trainable parameters of ``model``, or None if it exposes none."""
     weights = getattr(model, "weights", None)

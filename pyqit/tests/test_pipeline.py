@@ -442,3 +442,92 @@ def test_learning_rate_per_group_moves_only_the_group_it_names(backend):
     after = _weights(pipe)
     assert all(np.allclose(before[k], after[k]) for k in groups["quantum"])
     assert all(not np.allclose(before[k], after[k]) for k in groups["classical"])
+
+
+def _sequences(n_samples=24, steps=3, n_features=2):
+    X = np.random.default_rng(0).random((n_samples, steps, n_features))
+    return X, (np.arange(n_samples) % 2).astype(float)
+
+
+def _fit_sequence_hybrid(backend):
+    _require(backend)
+    pyqit.set_seed(0)
+    pipe = QuantumPipeline(
+        [
+            ("pre", DenseLayer(2, 1, activation="tanh")),
+            ("q", QuantumLayer(n_qubits=3, n_layers=1)),
+            ("head", DenseClassifier(3)),
+        ],
+        fit_mode="joint",
+    )
+    before = _weights(pipe)
+    X, y = _sequences()
+    dm = DataModule(X, y, normalize="minmax", batch_size=8)
+    history = Trainer(max_epochs=2, verbose=0).fit(pipe, dm)
+    return pipe, before, history
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_sequence_hybrid_trains_through_the_flatten(backend):
+    """A dense stage sees (t, f); gradients cross the flatten into the circuit."""
+    pipe, before, _ = _fit_sequence_hybrid(backend)
+
+    after = _weights(pipe)
+    assert all(not np.allclose(before[k], after[k]) for k in before)
+
+
+def test_sequence_hybrid_agrees_across_backends():
+    pytest.importorskip("lightning")
+    _, _, pennylane = _fit_sequence_hybrid("pennylane")
+    _, _, torch = _fit_sequence_hybrid("torch")
+
+    np.testing.assert_allclose(pennylane.train_loss, torch.train_loss, atol=1e-5)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("input_slice", [[0], 0], ids=["list", "int"])
+def test_input_slice_selects_features_not_positions(backend, input_slice):
+    """On (n, 2, 2) both axes fit, so slicing axis 1 would not raise."""
+    _require(backend)
+    X, _ = _sequences(n_samples=4, steps=2)
+    stage = DenseLayer(1, 1)
+    seen = _record_inputs(stage)
+    pipe = QuantumPipeline(
+        [PipelineStage(stage, input_slice=input_slice), DenseLayer(1, 1)]
+    )
+
+    pipe.forward(_as_input(X, backend))
+
+    np.testing.assert_allclose(seen[0], X[..., [0]], rtol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_passthrough_joins_on_the_feature_axis(backend):
+    """With f == k, joining on axis 1 would double the time steps and not raise."""
+    _require(backend)
+    X, _ = _sequences(n_samples=4)
+    head = DenseLayer(4, 1)
+    seen = _record_inputs(head)
+    pipe = QuantumPipeline([PipelineStage(DenseLayer(2, 2), passthrough=True), head])
+
+    pipe.forward(_as_input(X, backend))
+
+    assert seen[0].shape == (4, 3, 4)
+    np.testing.assert_allclose(seen[0][..., :2], X, rtol=1e-6)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_multi_target_head_trains_with_no_accuracy(backend):
+    """Two targets per row have no hard label to count, so accuracy is NaN."""
+    _require(backend)
+    X, _ = _regression_data()
+    y = np.stack([X[:, 0], X[:, 1] - X[:, 2]], axis=1)
+    pyqit.set_seed(0)
+    pipe = QuantumPipeline([("head", DenseLayer(3, 2))], fit_mode="joint")
+
+    history = Trainer(max_epochs=8, learning_rate=0.1, verbose=0).fit(
+        pipe, DataModule(X, y)
+    )
+
+    assert history.train_loss[-1] < history.train_loss[0]
+    assert np.isnan(history.train_acc).all() and np.isnan(history.val_acc).all()
