@@ -6,16 +6,6 @@ from pyqit.base.base_object import _PyQitObject
 from pyqit.core.config import get_backend
 
 
-def _require_same_shape(name, preds, targets):
-    p, t = tuple(qml.math.shape(preds)), tuple(qml.math.shape(targets))
-    if p != t:
-        raise ValueError(
-            f"Loss {name!r} needs predictions and targets of the same shape, "
-            f"got {p} and {t}. A multi-column output scored against class "
-            "indices needs a multi-target loss, such as loss_fn='cross_entropy'."
-        )
-
-
 class BaseLoss(_PyQitObject):
     """Base class for backend-dispatching losses.
 
@@ -33,6 +23,9 @@ class BaseLoss(_PyQitObject):
     target_dtype : {"float", "int"}
         What the loss expects its targets to be. ``"int"`` marks losses taking
         class indices, which is how the Lightning adapter knows to cast.
+    target_shape : {"same_as_preds", "one_per_sample"}
+        What shape of targets the loss takes, checked on every call so that a
+        mismatch raises rather than broadcasts into a wrong number.
     """
 
     _tags = {
@@ -40,6 +33,7 @@ class BaseLoss(_PyQitObject):
         "name": None,
         "backends": ("pennylane", "torch"),
         "target_dtype": "float",
+        "target_shape": "same_as_preds",
     }
 
     def __init__(self, backend=None):
@@ -67,9 +61,26 @@ class BaseLoss(_PyQitObject):
         -------
         float or tensor
         """
+        self._check_target_shape(preds, targets)
         if self._backend == "torch":
             return self._torch(preds, targets)
         return self._pennylane(preds, targets)
+
+    def _check_target_shape(self, preds, targets):
+        name = self.get_tag("name")
+        p, t = tuple(qml.math.shape(preds)), tuple(qml.math.shape(targets))
+        if self.get_tag("target_shape") == "one_per_sample":
+            if len(t) != 1:
+                raise ValueError(
+                    f"Loss {name!r} needs one label per sample, a 1-D y, got shape "
+                    f"{t}. Flatten a single column of labels with y.ravel()."
+                )
+        elif p != t:
+            raise ValueError(
+                f"Loss {name!r} needs predictions and targets of the same shape, "
+                f"got {p} and {t}. A multi-column output scored against class "
+                "indices needs a multi-target loss, such as loss_fn='cross_entropy'."
+            )
 
     @abstractmethod
     def _pennylane(self, preds, targets):

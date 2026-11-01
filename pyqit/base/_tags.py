@@ -432,6 +432,28 @@ class target_dtype(_BaseTag):
     }
 
 
+class target_shape(_BaseTag):
+    """What shape of targets a loss takes.
+
+    - String name: ``"target_shape"``
+    - Public metadata tag
+    - Values: ``"same_as_preds"``, ``"one_per_sample"``
+    - Example: ``"one_per_sample"`` on ``CrossEntropyLoss``
+    - Default: ``"same_as_preds"``
+
+    ``BaseLoss.__call__`` checks it on every call, so a mismatch raises rather
+    than broadcasts into a wrong number.
+    """
+
+    _tags = {
+        "tag_name": "target_shape",
+        "parent_type": "loss",
+        "tag_type": "str",
+        "short_descr": "target shape the loss takes, relative to its predictions",
+        "user_facing": True,
+    }
+
+
 class backend(_BaseTag):
     """Backend a training loop serves.
 

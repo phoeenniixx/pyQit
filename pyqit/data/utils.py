@@ -120,7 +120,9 @@ def _make_torch_loader(
 
 
 def _unit_rows(X, ord=2):
-    norms = np.linalg.norm(X, ord=ord, axis=1, keepdims=True)
+    n = len(X)
+    norms = np.linalg.norm(X.reshape(n, -1), ord=ord, axis=1)
+    norms = norms.reshape(n, *[1] * (X.ndim - 1))
     return X / np.where(norms == 0, 1.0, norms)
 
 
@@ -138,13 +140,14 @@ class _Normalizer:
         self._fitted = False
 
     def fit(self, X) -> "_Normalizer":
+        axes = tuple(range(X.ndim - 1))
         if self.method == "minmax":
-            lo = X.min(axis=0)
-            hi = X.max(axis=0)
+            lo = X.min(axis=axes)
+            hi = X.max(axis=axes)
             self._params = {"lo": lo, "rng": np.where(hi - lo == 0, 1.0, hi - lo)}
         elif self.method == "zscore":
-            mu = X.mean(axis=0)
-            sigma = X.std(axis=0)
+            mu = X.mean(axis=axes)
+            sigma = X.std(axis=axes)
             self._params = {"mu": mu, "sigma": np.where(sigma == 0, 1.0, sigma)}
         self._fitted = True
         return self
@@ -207,7 +210,14 @@ _PRESCALE_FNS = {
 }
 
 
+def _flatten_samples(X):
+    if qml.math.ndim(X) <= 2:
+        return X
+    return qml.math.reshape(X, (qml.math.shape(X)[0], -1))
+
+
 def _apply_prescale(X, prescale: str | None, n_qubits: int):
+    X = _flatten_samples(X)
     if prescale in (None, "none"):
         return X
     if prescale not in _PRESCALE_FNS:

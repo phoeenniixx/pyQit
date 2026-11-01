@@ -263,14 +263,15 @@ def make_bars_and_stripes(
         Standard deviation of the Gaussian pixel noise.
     flatten : bool, default True
         Return one row of ``height * width`` pixels per image, the shape
-        ``DataModule`` takes. ``False`` keeps the images as
-        ``(n_samples, 1, height, width)`` with a channel axis.
+        ``False`` keeps the images as ``(n_samples, height, width, 1)``, channel
+        last as ``DataModule`` reads them. The reference generator puts the
+        channel first.
     seed : int or numpy RandomState, optional
         ``None`` uses numpy's global state, which ``pyqit.set_seed`` seeds.
 
     Returns
     -------
-    X : ndarray of shape (n_samples, height * width) or (n_samples, 1, height, width)
+    X : ndarray of shape (n_samples, height * width) or (n_samples, height, width, 1)
     y : ndarray of shape (n_samples,)
         ``1`` for stripes, ``0`` for bars.
 
@@ -297,7 +298,7 @@ def make_bars_and_stripes(
     lit = np.where(stripes[:, None, None], rows, cols)
     X = np.where(np.broadcast_to(lit, (n_samples, height, width)), 1.0, -1.0)
     X = X + rng.normal(scale=noise, size=X.shape)
-    X = X.reshape(n_samples, -1) if flatten else X[:, None]
+    X = X.reshape(n_samples, -1) if flatten else X[..., None]
     return X, stripes.astype(int)
 
 

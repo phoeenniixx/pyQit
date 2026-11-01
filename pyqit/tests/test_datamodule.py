@@ -4,6 +4,7 @@ import pytest
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import pyqit
+from pyqit.core.embeddings import AmplitudeEmbedding
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
@@ -245,3 +246,133 @@ def test_csv_label_column_in_the_middle_does_not_leak_into_features(tmp_path):
 
     np.testing.assert_array_equal(dm.X_raw, df[["f0", "f1"]].to_numpy())
     np.testing.assert_array_equal(dm.y_raw, df["label"].to_numpy())
+
+
+def _rows(shape, seed=0):
+    rng = np.random.default_rng(seed)
+    return rng.random(shape), (np.arange(shape[0]) % 2).astype(float)
+
+
+@pytest.mark.parametrize(
+    "shape", [(30, 3, 2), (30, 2, 3, 2)], ids=["sequence", "image"]
+)
+@pytest.mark.parametrize(
+    "method, reference", [("minmax", MinMaxScaler), ("zscore", StandardScaler)]
+)
+def test_nd_scaling_is_per_feature(shape, method, reference):
+    """Each last-axis feature gets one statistic, pooled over positions, from train."""
+    _require("pennylane")
+    X, y = _rows(shape)
+    raw = DataModule(X, y).setup()
+    scaled = DataModule(X, y, normalize=method).setup()
+
+    scaler = reference().fit(raw.X_train.reshape(-1, shape[-1]))
+    for raw_split, scaled_split in [
+        (raw.X_train, scaled.X_train),
+        (raw.X_val, scaled.X_val),
+    ]:
+        flat = scaler.transform(raw_split.reshape(-1, shape[-1]))
+        np.testing.assert_allclose(scaled_split, flat.reshape(raw_split.shape))
+
+
+@pytest.mark.parametrize("method, order", [("l2", 2), ("l1", 1)])
+def test_nd_unit_norm_covers_the_whole_sample(method, order):
+    _require("pennylane")
+    X, y = _rows((12, 3, 2))
+
+    dm = DataModule(X * 10 + 5, y, normalize=method).setup()
+
+    assert dm.X_train.shape[1:] == (3, 2)
+    flat = dm.X_train.reshape(len(dm.X_train), -1)
+    np.testing.assert_allclose(np.linalg.norm(flat, ord=order, axis=1), 1.0)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_embedding_reads_images_flattened(backend):
+    """Twenty 4x4 images used to reach the circuit padded to (n, 16, 4)."""
+    _require(backend)
+    X, y = _rows((20, 4, 4))
+    pyqit.set_seed(0)
+    model = VQCClassifier(n_qubits=4, n_layers=1, encoder=AmplitudeEmbedding)
+    seen = _record_inputs(model)
+    settings = {"split": (1.0, 0.0, 0.0), "batch_size": 20, "shuffle": False}
+
+    Trainer(max_epochs=1, verbose=0).fit(model, DataModule(X, y, **settings))
+
+    pixels = DataModule(X, y, **settings).setup().X_train.reshape(20, -1)
+    expected = pixels / np.linalg.norm(pixels, axis=1, keepdims=True)
+    np.testing.assert_allclose(seen[0], expected)
+
+
+def test_width_check_counts_every_axis():
+    """A (2, 2) sample holds 4 features; reading shape[1] would let it through."""
+    _require("pennylane")
+    X, y = _rows((12, 2, 2))
+
+    with pytest.raises(ValueError, match="X has 4 features"):
+        Trainer(max_epochs=1, verbose=0).fit(_model(), DataModule(X, y))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("y_axes", [(2,), (2, 3)], ids=["targets", "quantiles"])
+def test_loaders_keep_target_axes_aligned_with_rows(backend, y_axes):
+    _require(backend)
+    ids = np.arange(24.0)
+    X = np.stack([ids, ids], axis=1)
+    y = ids.reshape(-1, *[1] * len(y_axes)) * np.ones((24, *y_axes))
+
+    dm = DataModule(X, y, batch_size=5).setup()
+
+    served = []
+    for loader in (dm.train_loader(), dm.val_loader(), dm.test_loader()):
+        for X_batch, y_batch in loader:
+            X_batch, y_batch = _to_numpy(X_batch), _to_numpy(y_batch)
+            assert y_batch.shape[1:] == y_axes
+            np.testing.assert_array_equal(
+                y_batch.reshape(len(y_batch), -1).max(axis=1), X_batch[:, 0]
+            )
+            served.extend(X_batch[:, 0])
+    assert sorted(served) == ids.tolist()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("route", ["for_prediction", "load"])
+def test_new_images_match_the_test_split(backend, route, tmp_path):
+    """Saved statistics and flattening treat new rows as the test split was treated."""
+    _require(backend)
+    X, y = _rows((30, 4, 4))
+    fitted = DataModule(X, y, normalize="minmax").setup(
+        n_qubits=4, encoder=AmplitudeEmbedding
+    )
+    new_rows = DataModule(X, y).setup().X_test
+
+    if route == "for_prediction":
+        new = fitted.for_prediction(new_rows)
+    else:
+        new = DataModule.load(fitted.save(str(tmp_path / "dm.pkl")), new_rows)
+    new.setup(stage="predict")
+
+    assert new.X_test.shape == (len(new_rows), 16)
+    np.testing.assert_allclose(new.X_test, fitted.X_test)
+
+
+def test_new_rows_with_other_axes_raise():
+    """Four flat columns would otherwise pad to the 8 a (2, 2, 2) sample holds."""
+    _require("pennylane")
+    X, y = _rows((12, 2, 2, 2))
+    fitted = DataModule(X, y).setup(n_qubits=3, encoder=AmplitudeEmbedding)
+
+    with pytest.raises(ValueError, match="4 axes"):
+        fitted.for_prediction(np.zeros((5, 4)))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_cross_entropy_refuses_a_column_of_labels(backend):
+    """On pennylane (n, 1) broadcast against (n,) and scored n * n pairs."""
+    _require(backend)
+    X, y = _data()
+
+    with pytest.raises(ValueError, match="one label per sample"):
+        Trainer(max_epochs=1, verbose=0, loss_fn="cross_entropy").fit(
+            _model(), DataModule(X, y.reshape(-1, 1))
+        )

@@ -1,6 +1,6 @@
 import pennylane.numpy as pnp
 
-from pyqit.core.losses.base import BaseLoss, _require_same_shape
+from pyqit.core.losses.base import BaseLoss
 
 
 def mse_loss(preds, targets):
@@ -31,11 +31,9 @@ class MSELoss(BaseLoss):
     _tags = {"name": "mse"}
 
     def _pennylane(self, preds, targets):
-        _require_same_shape("mse", preds, targets)
         return mse_loss(preds, targets)
 
     def _torch(self, preds, targets):
         import torch.nn.functional as F
 
-        _require_same_shape("mse", preds, targets)
         return F.mse_loss(preds, targets.to(preds.dtype))

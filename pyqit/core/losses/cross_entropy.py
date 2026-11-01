@@ -53,7 +53,11 @@ class CrossEntropyLoss(BaseLoss):
     scored against integer class indices in ``[0, n_classes - 1]``.
     """
 
-    _tags = {"name": "cross_entropy", "target_dtype": "int"}
+    _tags = {
+        "name": "cross_entropy",
+        "target_dtype": "int",
+        "target_shape": "one_per_sample",
+    }
 
     def _pennylane(self, preds, targets):
         return cross_entropy_loss(preds, targets)

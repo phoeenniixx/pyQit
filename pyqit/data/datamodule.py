@@ -29,12 +29,22 @@ class DataModule:
 
     Parameters
     ----------
-    X, y : array-like
+    X : array-like of shape (n_samples, ..., n_features)
+        Sample axis first, feature axis last, any number of axes between:
+        ``(n, h, w, c)`` images, ``(n, t, f)`` sequences. A 1-D ``X`` is one
+        feature per sample. An embedding reads each sample flattened; a
+        classical stage in front of it in a pipeline gets the axes as they are.
+    y : array-like of shape (n_samples, ...)
+        Sample axis first, the rest passed through untouched. Which shapes
+        work depends on the loss.
     name : str, default "dataset"
     normalize : {"minmax", "zscore", "l2", "l1"}, optional
+        ``minmax`` and ``zscore`` hold one statistic per feature, pooled over
+        every other axis. ``l1`` and ``l2`` scale each whole sample to unit norm.
     split : tuple of float, default (0.70, 0.15, 0.15)
         Train, val, test fractions. Must sum to 1.0.
     stratify : bool, default False
+        Needs a 1-D ``y``.
     seed : int, optional, default 42
     batch_size : int, default 32
     num_workers : int, default 0
@@ -81,6 +91,7 @@ class DataModule:
 
         self.X_raw = _as_2d(X)
         self.y_raw = np.asarray(y, dtype=np.float64)
+        self._x_ndim = self.X_raw.ndim
 
         self.name = name
         self.normalize = normalize
@@ -385,8 +396,8 @@ class DataModule:
 
     @property
     def n_features(self):
-        """Raw feature count, before any prescaling."""
-        return self.X_raw.shape[1]
+        """Size of the feature axis, before any prescaling."""
+        return self.X_raw.shape[-1]
 
     @property
     def n_classes(self):
@@ -401,7 +412,7 @@ class DataModule:
     @property
     def feature_dim(self):
         """Feature count after `setup()`; falls back to `n_features` before it."""
-        return self._X_train.shape[1] if self._X_train is not None else self.n_features
+        return self._X_train.shape[-1] if self._X_train is not None else self.n_features
 
     @property
     def normalizer(self) -> "_Normalizer | None":
@@ -480,6 +491,12 @@ class DataModule:
     def _stratified_indices(self, n, val, test):
         from sklearn.model_selection import train_test_split
 
+        if self.y_raw.ndim > 1:
+            raise ValueError(
+                f"stratify=True needs a 1-D y of class labels, got shape "
+                f"{self.y_raw.shape}. Pass stratify=False for multi-column targets."
+            )
+
         idx, held, empty = np.arange(n), val + test, np.array([], dtype=int)
         if held <= 0:
             return idx, empty, empty
@@ -530,10 +547,20 @@ class DataModule:
         >>> preds = trainer.predict(model, dm.for_prediction(X_new))  # doctest: +SKIP
         """
         new_dm = self.clone_empty()
-        new_dm.X_raw = _as_2d(X)
+        new_dm.X_raw = self._new_rows(X)
         new_dm.y_raw = np.zeros(len(new_dm.X_raw))
         new_dm.split = (0.0, 0.0, 1.0)
         return new_dm
+
+    def _new_rows(self, X):
+        X = _as_2d(X)
+        if X.ndim != self._x_ndim:
+            raise ValueError(
+                f"X has {X.ndim} axes, but this DataModule was built from "
+                f"{self._x_ndim} axes. Keep the sample axis first and the same "
+                "axes after it; a single sample needs a sample axis of length 1."
+            )
+        return X
 
     def save(self, path: str) -> str:
         """Pickle the settings and fitted preprocessing, without the data.
@@ -590,7 +617,7 @@ class DataModule:
         dm._backend = get_backend()
         if y is None:
             return dm.for_prediction(X)
-        dm.X_raw = _as_2d(X)
+        dm.X_raw = dm._new_rows(X)
         dm.y_raw = np.asarray(y, dtype=np.float64)
         return dm
 
