@@ -94,6 +94,8 @@ class BaseModel(_PyQitObject):
             layer = getattr(self, name)
             if self._qnode_of(layer) is None:
                 return layer(X.to(next(layer.parameters()).dtype))
+            if X.is_complex():
+                return layer(X).real
             if getattr(self, "shots", None) is None:
                 return layer(X)
             import torch

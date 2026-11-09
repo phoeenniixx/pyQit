@@ -129,6 +129,11 @@ class AmplitudeEmbedding(BaseEmbedding):
     sixteen. The `DataModule` zero-pads each row to that width and
     L2-normalizes it. Wider input raises.
 
+    Complex rows are taken as quantum states and prepared exactly, so they
+    must already have unit norm. One that does not raises rather than being
+    rescaled. Pass real-valued states as complex (``X.astype(complex)``) to
+    get the same check.
+
     Parameters
     ----------
     n_qubits : int
