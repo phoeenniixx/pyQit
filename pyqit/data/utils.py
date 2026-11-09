@@ -7,7 +7,8 @@ from pyqit.core.config import _torch_dtype
 
 
 def _as_2d(X):
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X)
+    X = X.astype(np.complex128 if np.iscomplexobj(X) else np.float64)
     return X.reshape(-1, 1) if X.ndim == 1 else X
 
 
@@ -87,7 +88,10 @@ def _make_torch_loader(
 
     class _DS(Dataset):
         def __init__(self, X, y):
-            self.X = torch.as_tensor(X, dtype=_torch_dtype())
+            dtype = _torch_dtype()
+            self.X = torch.as_tensor(
+                X, dtype=dtype.to_complex() if np.iscomplexobj(X) else dtype
+            )
             self.y = torch.as_tensor(y, dtype=_torch_dtype())
 
         def __len__(self):
@@ -140,6 +144,11 @@ class _Normalizer:
         self._fitted = False
 
     def fit(self, X) -> "_Normalizer":
+        if self.method in ("minmax", "zscore") and np.iscomplexobj(X):
+            raise ValueError(
+                f"normalize={self.method!r} has no meaning for complex rows. "
+                'Use normalize="l2" for state vectors, or None.'
+            )
         axes = tuple(range(X.ndim - 1))
         if self.method == "minmax":
             lo = X.min(axis=axes)
@@ -194,7 +203,16 @@ def _prescale_angle_half_pi(X, n_qubits):
 
 def _prescale_amplitude(X, n_qubits):
     X = _fit_width(X, 2**n_qubits)
-    sq = qml.math.sum(X**2, axis=1, keepdims=True)
+    sq = qml.math.sum(qml.math.abs(X) ** 2, axis=1, keepdims=True)
+    if "complex" in qml.math.get_dtype_name(X) and not qml.math.allclose(
+        sq, 1.0, atol=1e-6
+    ):
+        raise ValueError(
+            "Complex rows are read as quantum states and must have unit norm; "
+            f"squared norms range from {float(qml.math.min(sq)):.6g} to "
+            f"{float(qml.math.max(sq)):.6g}. Rescaling them would hide the "
+            'error; pass normalize="l2" to the DataModule if it is intended.'
+        )
     return X / qml.math.sqrt(qml.math.where(sq == 0, 1.0, sq))
 
 

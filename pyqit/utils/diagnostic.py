@@ -333,7 +333,10 @@ def _sample_gradients_torch(
 
     loss_fn = get_loss_fn(loss_name, backend="torch")
 
-    X_t = torch.as_tensor(np.asarray(X), dtype=torch.float64)
+    X = np.asarray(X)
+    X_t = torch.as_tensor(
+        X, dtype=torch.complex128 if np.iscomplexobj(X) else torch.float64
+    )
     y_t = torch.as_tensor(np.asarray(y), dtype=torch.float64)
 
     original_state = {

@@ -1,15 +1,17 @@
 import numpy as np
 import pandas as pd
+import pennylane as qml
 import pytest
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import pyqit
-from pyqit.core.embeddings import AmplitudeEmbedding
+from pyqit.core.embeddings import AmplitudeEmbedding, AngleEmbedding
 from pyqit.core.trainer import Trainer
 from pyqit.data.datamodule import DataModule
 from pyqit.models.classification.vqc import VQCClassifier
 from pyqit.tests.scenarios import make_scenario
 from pyqit.tests.test_trainer import BACKENDS, _require, _to_numpy
+from pyqit.utils.diagnostic import check_barren_plateau
 
 
 def _data(n_samples=12, n_features=2):
@@ -376,3 +378,66 @@ def test_cross_entropy_refuses_a_column_of_labels(backend):
         Trainer(max_epochs=1, verbose=0, loss_fn="cross_entropy").fit(
             _model(), DataModule(X, y.reshape(-1, 1))
         )
+
+
+def _angle_states(X, n_qubits=2):
+    """The complex state ``AngleEmbedding`` prepares from each prescaled row."""
+    embedding = AngleEmbedding(n_qubits)
+
+    @qml.qnode(qml.device("default.qubit", wires=n_qubits))
+    def state(x):
+        embedding.forward(x)
+        return qml.state()
+
+    return np.stack([np.asarray(state(x)) for x in X * np.pi])
+
+
+def _record_outputs(model):
+    seen, forward = [], model.forward
+
+    def recording(X, **kwargs):
+        out = forward(X, **kwargs)
+        seen.append(np.array(_to_numpy(out)))
+        return out
+
+    model.forward = recording
+    return seen
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_state_rows_predict_like_the_features_that_prepared_them(backend):
+    """The imaginary part used to be cast away, leaving a sub-normalized state."""
+    _require(backend)
+    X, y = _data()
+    pyqit.set_seed(0)
+    from_features = VQCClassifier(n_qubits=2, n_layers=1)
+    pyqit.set_seed(0)
+    from_states = VQCClassifier(n_qubits=2, n_layers=1, encoder=AmplitudeEmbedding)
+    expected, got = _record_outputs(from_features), _record_outputs(from_states)
+
+    Trainer(verbose=0).predict(from_features, DataModule(X, y))
+    Trainer(verbose=0).predict(from_states, DataModule(_angle_states(X), y))
+
+    np.testing.assert_allclose(
+        np.concatenate(got), np.concatenate(expected), atol=1e-10
+    )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bp_check_on_state_rows_matches_the_features_that_prepared_them(backend):
+    """Torch's sampler cast its input row to float64, dropping the phases."""
+    _require(backend)
+    X, y = _data()
+    variance = {}
+    for encoder, rows in [(AngleEmbedding, X), (AmplitudeEmbedding, _angle_states(X))]:
+        pyqit.set_seed(0)
+        model = VQCClassifier(n_qubits=2, n_layers=1, encoder=encoder)
+        dm = DataModule(rows, y).setup(n_qubits=2, encoder=encoder)
+        pyqit.set_seed(1)
+        variance[encoder] = check_barren_plateau(
+            model, dm, num_samples=20, plot=False
+        ).overall_variance
+
+    assert variance[AmplitudeEmbedding] == pytest.approx(
+        variance[AngleEmbedding], rel=1e-8
+    )
