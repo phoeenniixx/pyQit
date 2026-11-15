@@ -2,6 +2,7 @@ from skbase.testing import BaseFixtureGenerator as _BaseFixtureGenerator, QuickT
 from skbase.utils.dependencies import _check_soft_dependencies
 
 from pyqit.base.base_object import all_objects
+from pyqit.tests.scenarios import all_scenarios
 
 
 class BaseFixtureGenerator(_BaseFixtureGenerator, QuickTester):
@@ -9,6 +10,7 @@ class BaseFixtureGenerator(_BaseFixtureGenerator, QuickTester):
         "object_class",
         "object_instance",
         "trainer_kwargs",
+        "scenario",
     ]
 
     def _all_objects(self) -> list[type]:
@@ -83,6 +85,16 @@ class BaseFixtureGenerator(_BaseFixtureGenerator, QuickTester):
                     names.append(name)
 
         return instances, names
+
+    def _generate_scenario(self, test_name: str, **kwargs) -> tuple[list, list]:
+        """Every scenario whose tags fit the paired instance's width and classes."""
+        inst = kwargs["object_instance"]
+        n_features = getattr(inst, "n_features", getattr(inst, "n_qubits", 4))
+        n_classes = getattr(inst, "n_classes", None)
+        classes = all_scenarios(n_features, n_classes)
+        return [cls(16, n_features, n_classes, 42) for cls in classes], [
+            cls.__name__ for cls in classes
+        ]
 
     def _generate_trainer_kwargs(self, test_name: str, **kwargs) -> tuple[list, list]:
         """Generates the trainer_kwargs fixture perfectly paired to the instances."""

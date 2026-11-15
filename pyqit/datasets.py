@@ -305,18 +305,23 @@ def make_bars_and_stripes(
 def make_ad_hoc(n_samples=100, n_features=2, gap=0.3, seed=None):
     """Generate the ad hoc set that the ZZ feature map separates exactly.
 
-    Inputs are drawn uniformly in ``[0, 2 pi)^n``. Each is mapped to the state
-    ``U(x) H U(x) H |0>`` of the second-order Pauli-Z feature map with full
-    entanglement, and labelled by the sign of ``<V^dag Z^n V>`` in that state for
-    one random unitary ``V`` drawn per call. Inputs whose expectation lies within
-    ``gap`` of zero are rejected, so the classes are separated by a margin.
+    Inputs ``x`` are drawn uniformly in ``[0, 2)^n`` and read as the angles
+    ``pi x``, which is what ``ZZFeatureMap``'s prescaling hands the circuit, so
+    pass them through a ``DataModule`` with ``normalize=None``. Each is mapped to
+    the state ``U(pi x) H U(pi x) H |0>`` of the second-order Pauli-Z feature map
+    with full entanglement, and labelled by the sign of ``<V^dag Z^n V>`` in that
+    state for one random unitary ``V`` drawn per call. Inputs whose expectation
+    lies within ``gap`` of zero are rejected, so the classes are separated by a
+    margin.
 
     Parameters
     ----------
     n_samples : int, default 100
+        Rounded down to an even number so the classes balance.
     n_features : int, default 2
-        One feature per qubit. The state has ``2 ** n_features`` amplitudes, so
-        keep this small.
+        One feature per qubit. The expectation shrinks like
+        ``2 ** (-n_features / 2)``, so with the default ``gap`` no input clears
+        it from about 8 features up.
     gap : float, default 0.3
         Rejection band around zero expectation.
     seed : int or numpy RandomState, optional
@@ -327,6 +332,12 @@ def make_ad_hoc(n_samples=100, n_features=2, gap=0.3, seed=None):
     X : ndarray of shape (n_samples, n_features)
     y : ndarray of shape (n_samples,)
         ``1`` where the expectation is positive, else ``0``.
+
+    Raises
+    ------
+    ValueError
+        If ``1000 * n_samples`` draws do not fill both classes, which means
+        ``gap`` is too wide for ``n_features``.
 
     References
     ----------
@@ -341,10 +352,11 @@ def make_ad_hoc(n_samples=100, n_features=2, gap=0.3, seed=None):
     --------
     >>> from pyqit.datasets import make_ad_hoc
     >>> X, y = make_ad_hoc(n_samples=50, n_features=2, seed=0)
-    >>> X.shape, sorted(set(y.tolist()))
-    ((50, 2), [0, 1])
+    >>> X.shape, int(y.sum())
+    ((50, 2), 25)
     """
     rng = check_random_state(seed)
+    half = n_samples // 2
     dim = 2**n_features
     bits = (np.arange(dim)[:, None] >> np.arange(n_features)[::-1]) & 1
     z = 1.0 - 2.0 * bits
@@ -364,15 +376,21 @@ def make_ad_hoc(n_samples=100, n_features=2, gap=0.3, seed=None):
         psi = U * ((U / np.sqrt(dim)) @ H)
         return np.real(np.einsum("ij,ij->i", psi.conj(), psi @ O.T))
 
-    rows, labels = [], []
-    while sum(len(r) for r in rows) < n_samples:
-        X = rng.uniform(0, 2 * np.pi, size=(2 * n_samples, n_features))
-        value = expectation(X)
-        keep = np.abs(value) > gap
-        rows.append(X[keep])
-        labels.append(value[keep] > 0)
-    X = np.concatenate(rows)[:n_samples]
-    return X, np.concatenate(labels)[:n_samples].astype(int)
+    pos, neg = np.empty((0, n_features)), np.empty((0, n_features))
+    drawn = 0
+    while min(len(pos), len(neg)) < half:
+        if drawn >= 1000 * n_samples:
+            raise ValueError(
+                f"Kept {min(len(pos), half) + min(len(neg), half)} of {2 * half} "
+                f"rows after {drawn} draws: no input clears gap={gap} often "
+                f"enough at n_features={n_features}. Lower gap."
+            )
+        X = rng.uniform(0, 2, size=(2 * n_samples, n_features))
+        drawn += len(X)
+        value = expectation(np.pi * X)
+        pos, neg = np.r_[pos, X[value > gap]], np.r_[neg, X[value < -gap]]
+    X = np.r_[pos[:half], neg[:half]]
+    return X, np.r_[np.ones(half, dtype=int), np.zeros(half, dtype=int)]
 
 
 def make_sine(n_samples=80, noise=0.0, seed=None):

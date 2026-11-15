@@ -80,12 +80,6 @@ def test_noiseless_bars_and_stripes_are_constant_along_the_labelled_axis():
     assert np.array_equal(flat, images.reshape(60, -1))
 
 
-def test_ad_hoc_inputs_are_angles_with_both_classes_present():
-    X, y = make_ad_hoc(n_samples=40, n_features=2, gap=0.3, seed=5)
-    assert X.shape == (40, 2) and (X >= 0).all() and (X < 2 * np.pi).all()
-    assert set(y.tolist()) == {0, 1}
-
-
 @pytest.mark.parametrize("make", SIZED)
 def test_set_seed_and_the_seed_argument_both_reproduce_a_set(make):
     """``pyqit.set_seed`` covers a bare call, and ``seed=`` ignores global state."""
@@ -113,7 +107,8 @@ def test_linearly_separable_rows_clear_the_margin_and_follow_the_hyperplane():
 
 
 @pytest.mark.parametrize(
-    "make", [make_two_curves, make_hidden_manifold, make_hyperplanes_parity]
+    "make",
+    [make_two_curves, make_hidden_manifold, make_hyperplanes_parity, make_ad_hoc],
 )
 def test_the_balanced_generators_give_equal_classes_and_integer_labels(make):
     X, y = make(n_samples=50, n_features=3, seed=2)
