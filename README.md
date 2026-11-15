@@ -3,7 +3,7 @@
 </p>
 
 [![PyPI](https://img.shields.io/pypi/v/pyqit)](https://pypi.org/project/pyqit/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 ![Status: Active Development](https://img.shields.io/badge/status-active_development-orange.svg)
 [![Docs](https://app.readthedocs.org/projects/pyqit/badge/?version=stable)](https://pyqit.readthedocs.io/en/stable/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)

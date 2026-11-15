@@ -19,7 +19,7 @@ extras. There is no conda package. Inside a conda environment, use pip.
 is not part of it, because it needs Python 3.11 or newer. Install it through
 the ``qiskit`` extra on its own.
 
-PyQit needs Python 3.10 or newer.
+PyQit needs Python 3.11 or newer.
 
 First model
 ===========
