@@ -2,6 +2,38 @@
 
 Generated from merged pull requests with `build_tools/changelog.py`; see that file's
 docstring for how classification works.
+## 0.2.0
+Release focusing on:
+- EOL `python 3.10` and `python 3.15` support
+- Updates in test framework
+- Datasets in `pyqit`
+- Other improvements like new `device_kwargs` arg
+
+### Bug fixes
+
+- Bugfixes and maintenance ([#55](https://github.com/phoeenniixx/pyQit/pull/55)) by [@phoeenniixx](https://github.com/phoeenniixx)
+
+### Enhancements
+
+- add test scenarios and update `make_ad_hoc` ([#66](https://github.com/phoeenniixx/pyQit/pull/66)) by [@phoeenniixx](https://github.com/phoeenniixx)
+- Add support for complex state-vector input ([#64](https://github.com/phoeenniixx/pyQit/pull/64)) by [@phoeenniixx](https://github.com/phoeenniixx)
+- Add support for n-dimensional X ([#63](https://github.com/phoeenniixx/pyQit/pull/63)) by [@phoeenniixx](https://github.com/phoeenniixx)
+- Add device_kwargs to quantum models and an MPS tutorial ([#62](https://github.com/phoeenniixx/pyQit/pull/62)) by [@stephendiadamo](https://github.com/stephendiadamo)
+- fixes and updates ([#60](https://github.com/phoeenniixx/pyQit/pull/60)) by [@phoeenniixx](https://github.com/phoeenniixx)
+- Add datasets ([#57](https://github.com/phoeenniixx/pyQit/pull/57)) by [@phoeenniixx](https://github.com/phoeenniixx)
+
+### Maintenance
+
+- EOL `python 3.10` and `python 3.15` support ([#65](https://github.com/phoeenniixx/pyQit/pull/65)) by [@phoeenniixx](https://github.com/phoeenniixx)
+- code cleanup ([#56](https://github.com/phoeenniixx/pyQit/pull/56)) by [@phoeenniixx](https://github.com/phoeenniixx)
+
+
+### Contributors
+
+Thanks to the following people for this release:
+
+[@phoeenniixx](https://github.com/phoeenniixx), [@stephendiadamo](https://github.com/stephendiadamo)
+
 ## 0.1.1
 Patch release to fix barren-plateau check samples
 
