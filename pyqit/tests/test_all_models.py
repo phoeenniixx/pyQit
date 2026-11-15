@@ -46,7 +46,9 @@ class TestAllModels(BaseFixtureGenerator):
         )
 
     @pytest.mark.parametrize("backend", ["pennylane", "torch"])
-    def test_basic_trainer_flow(self, object_instance, trainer_kwargs, backend):
+    def test_basic_trainer_flow(
+        self, object_instance, trainer_kwargs, scenario, backend
+    ):
         """
         Verifies the foundational architecture:
         DataModule feeds Trainer -> Trainer updates Model -> Trainer predicts.
@@ -66,7 +68,8 @@ class TestAllModels(BaseFixtureGenerator):
         }
         trainer_args.update(trainer_kwargs)
 
-        dm = self._get_matching_datamodule(model, n_samples=16, batch_size=8)
+        data = scenario.load()
+        dm = DataModule(data["X"], data["y"], batch_size=8, split=(0.6, 0.2, 0.2))
         trainer = Trainer(**trainer_args)
 
         weight_keys = list(model.weights.keys())

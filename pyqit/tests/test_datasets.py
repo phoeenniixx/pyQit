@@ -1,8 +1,11 @@
 import numpy as np
+import pennylane as qml
 import pytest
+from sklearn.svm import SVC
 
 import pyqit
 from pyqit import DataModule, Trainer
+from pyqit.core.embeddings import ZZFeatureMap
 from pyqit.datasets import (
     load_iris,
     make_ad_hoc,
@@ -80,10 +83,22 @@ def test_noiseless_bars_and_stripes_are_constant_along_the_labelled_axis():
     assert np.array_equal(flat, images.reshape(60, -1))
 
 
-def test_ad_hoc_inputs_are_angles_with_both_classes_present():
-    X, y = make_ad_hoc(n_samples=40, n_features=2, gap=0.3, seed=5)
-    assert X.shape == (40, 2) and (X >= 0).all() and (X < 2 * np.pi).all()
-    assert set(y.tolist()) == {0, 1}
+def test_ad_hoc_classes_are_separated_by_the_zz_states_a_datamodule_feeds():
+    """The labels are a measurement on the ZZ states, so their kernel fits them."""
+    X, y = make_ad_hoc(n_samples=80, n_features=2, seed=5)
+    dm = DataModule(X, y, split=(1.0, 0.0, 0.0))
+    dm.setup(encoder=ZZFeatureMap, n_qubits=2)
+
+    @qml.qnode(qml.device("default.qubit", wires=2))
+    def state(x):
+        ZZFeatureMap(2).forward(x)
+        return qml.state()
+
+    psi = np.asarray(state(np.asarray(dm.X_train)))
+    kernel = np.abs(psi.conj() @ psi.T) ** 2
+    y_train = np.asarray(dm.y_train)
+    svc = SVC(kernel="precomputed", C=1e6).fit(kernel, y_train)
+    assert svc.score(kernel, y_train) == 1.0
 
 
 @pytest.mark.parametrize("make", SIZED)
@@ -113,7 +128,8 @@ def test_linearly_separable_rows_clear_the_margin_and_follow_the_hyperplane():
 
 
 @pytest.mark.parametrize(
-    "make", [make_two_curves, make_hidden_manifold, make_hyperplanes_parity]
+    "make",
+    [make_two_curves, make_hidden_manifold, make_hyperplanes_parity, make_ad_hoc],
 )
 def test_the_balanced_generators_give_equal_classes_and_integer_labels(make):
     X, y = make(n_samples=50, n_features=3, seed=2)
