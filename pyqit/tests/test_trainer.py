@@ -1,5 +1,6 @@
 """Tests for Trainer orchestration, backend loops and callbacks."""
 
+import importlib.util
 import os
 
 import numpy as np
@@ -15,7 +16,16 @@ from pyqit.tests.scenarios import make_scenario
 from pyqit.utils.utils import _hard_labels, _restore_weights
 
 BACKENDS = ["pennylane", "torch"]
-SIMULATORS = ["default.qubit", "lightning.qubit", "default.mixed", "reference.qubit"]
+_needs_lightning_binary = pytest.mark.skipif(
+    importlib.util.find_spec("pennylane_lightning.lightning_qubit_ops") is None,
+    reason="pennylane-lightning ships no compiled wheel for this Python",
+)
+SIMULATORS = [
+    "default.qubit",
+    pytest.param("lightning.qubit", marks=_needs_lightning_binary),
+    "default.mixed",
+    "reference.qubit",
+]
 QISKIT_SIMULATORS = ["qiskit.aer", "qiskit.basicsim"]
 
 
@@ -460,7 +470,7 @@ def test_every_analytic_simulator_gives_the_same_loss_curve(backend, device):
     [
         ("default.qubit", None, "backprop"),
         ("default.qubit", 100, "parameter-shift"),
-        ("lightning.qubit", None, "adjoint"),
+        pytest.param("lightning.qubit", None, "adjoint", marks=_needs_lightning_binary),
         ("reference.qubit", None, "parameter-shift"),
     ],
 )
